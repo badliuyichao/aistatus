@@ -8,6 +8,8 @@ import urllib.request
 import urllib.error
 from typing import Optional
 
+from paths import data_path, is_frozen
+
 MINIMAX_QUOTA_URL = "https://www.minimaxi.com/v1/api/openplatform/coding_plan/remains"
 CONFIG_FILE = "config.json"
 
@@ -16,7 +18,7 @@ _LOG_TAG = "[MiniMaxFetcher]"
 
 
 def _config_path() -> str:
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)), CONFIG_FILE)
+    return data_path(CONFIG_FILE)
 
 
 def load_config() -> dict:
@@ -36,11 +38,12 @@ def save_config(config: dict):
     path = _config_path()
     with open(path, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=2, ensure_ascii=False)
-    # .gitignore hint
-    gitignore = os.path.join(os.path.dirname(path), ".gitignore")
-    if not os.path.isfile(gitignore):
-        with open(gitignore, "w", encoding="utf-8") as f:
-            f.write("config.json\n")
+    # .gitignore hint (dev only — no point beside a packaged exe)
+    if not is_frozen():
+        gitignore = os.path.join(os.path.dirname(path), ".gitignore")
+        if not os.path.isfile(gitignore):
+            with open(gitignore, "w", encoding="utf-8") as f:
+                f.write("config.json\n")
 
 
 class MiniMaxFetcher:

@@ -21,6 +21,7 @@ from PySide6.QtGui import (
 
 from data_manager import BalanceData, ServiceInfo, QuotaItem, DataWatcher
 from fetch_worker import FetchWorker
+from paths import resource_path
 
 
 # ── Constants ─────────────────────────────────────────────────────────────────
@@ -401,7 +402,7 @@ def _service_logo(name: str):
         fname = "minimax.png"
     else:
         return None
-    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons", fname)
+    path = resource_path("icons", fname)
     if not os.path.isfile(path):
         return None
     if path not in _LOGO_PIXMAPS:
@@ -701,6 +702,12 @@ class ConfigDialog(QDialog):
         self.setWindowTitle("API Key 配置")
         self.setModal(True)
         self.setMinimumWidth(460)
+        # The parent (MainWidget) is a WA_TranslucentBackground window, and that
+        # flag propagates to child top-level windows like this dialog. On a
+        # transparent window the QLineEdit text/echo dots render invisible
+        # (white-on-white, since the palette falls back to a light text colour).
+        # Force the dialog opaque so it gets a proper, paintable background.
+        self.setAttribute(Qt.WA_TranslucentBackground, False)
         self.setStyleSheet("""
             QDialog { background: #F4F7FB; }
             QLineEdit {
@@ -708,7 +715,9 @@ class ConfigDialog(QDialog):
                 border: 1px solid rgba(0,0,0,0.12);
                 border-radius: 6px;
                 background: white;
+                color: #1E2433;
                 selection-background-color: #4F87FF;
+                selection-color: white;
                 font-size: 12px;
             }
             QLineEdit:focus { border: 1px solid #4F87FF; }
@@ -1004,7 +1013,7 @@ class MainWidget(QWidget):
     def _setup_tray(self):
         self._tray = QSystemTrayIcon(self)
         # Use custom icon file (fallback to programmatic dot)
-        icon_path = os.path.join(os.path.dirname(__file__), "aistatus.ico")
+        icon_path = resource_path("aistatus.ico")
         if os.path.isfile(icon_path):
             self._tray.setIcon(QIcon(icon_path))
         else:
@@ -1171,7 +1180,7 @@ class MainWidget(QWidget):
         self._titlebar.set_title(data.title)
 
         # Update tray icon color based on data health (only for programmatic icon)
-        icon_path = os.path.join(os.path.dirname(__file__), "aistatus.ico")
+        icon_path = resource_path("aistatus.ico")
         if not os.path.isfile(icon_path):
             tray_color = "#00C853"  # green = healthy
             for svc in data.services:
@@ -1391,6 +1400,17 @@ class MainWidget(QWidget):
             if fetcher is not None:
                 fetcher.set_key(value)
         self.request_refresh()
+
+    def prompt_for_keys_if_needed(self):
+        """Pop the API-key dialog on first run when no vendor key is set.
+
+        When none of the three fetchers has a key (fresh install, no
+        config.json yet), open the config dialog once at startup so the user
+        is guided to enter their keys instead of facing empty cards.
+        """
+        fetchers = [self._deepseek_fetcher, self._glm_fetcher, self._minimax_fetcher]
+        if not any(getattr(f, "has_key", False) for f in fetchers if f is not None):
+            self._open_config()
 
     @staticmethod
     def _fetcher_key(fetcher) -> str:
