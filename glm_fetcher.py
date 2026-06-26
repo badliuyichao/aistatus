@@ -148,11 +148,11 @@ class GlmFetcher:
                 num = limit.get("number", 0)
                 # Determine label from unit/number
                 if unit == 3 and num == 5:
-                    label = "5小时用量"
+                    label = "5小时限额"
                 elif unit == 6 and num == 1:
-                    label = "周用量"
+                    label = "周限额"
                 else:
-                    label = "Token用量"
+                    label = "Token限额"
 
                 if total_val is not None and total_val > 0:
                     # Has absolute values

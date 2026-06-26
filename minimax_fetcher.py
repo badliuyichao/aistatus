@@ -230,7 +230,8 @@ def _aggregate_window(model_remains, status_field, pct_field, remains_field, lab
         if rems:
             reset_dur = _fmt_duration(min(rems))
 
-    model_names = sorted({m.get("model_name", "") for m in active if m.get("model_name")})
+    model_names = sorted({m.get("model_name", "") for m in active
+                          if m.get("model_name") and m.get("model_name", "").lower() != "general"})
     model_hint = f" ({', '.join(model_names)})" if model_names else ""
 
     if reset_dur:
