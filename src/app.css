@@ -1,7 +1,8 @@
 :root {
-  /* 卡片底色（无原生毛玻璃时的降级态）。原生 vibrancy/acrylic 启用后，
-     由后端把窗口设为透明，这块底色会透出系统模糊层。 */
-  --card-bg: rgba(221, 228, 239, 0.96);
+  /* 卡片底色：半透明以露出原生毛玻璃（vibrancy/acrylic）。
+     0.82 在 vibrancy 成功时透出朦胧质感，失败时仍可读
+     （服务卡片自身有 0.96 白底保证内容对比度）。 */
+  --card-bg: rgba(221, 228, 239, 0.82);
   --text-primary: #1e2433;
   --text-secondary: #586070;
   --text-muted: #8a92a0;

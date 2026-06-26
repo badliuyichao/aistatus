@@ -5,7 +5,7 @@
   import TitleBar from "./components/TitleBar.svelte";
   import ServiceCard from "./components/ServiceCard.svelte";
   import ConfigDialog from "./components/ConfigDialog.svelte";
-  import { services } from "./stores/services";
+  import { services } from "./stores/services.svelte";
   import { needsKeySetup, openBalanceFile, refreshNow } from "./api";
   import { formatTime } from "./types";
 
