@@ -1,0 +1,47 @@
+{
+  "title": "AI API 余额监控",
+  "services": [
+    {
+      "name": "GLM 智谱AI",
+      "type": "quota",
+      "icon": "🔷",
+      "items": [
+        {
+          "label": "5小时限额",
+          "used": 1.5,
+          "total": 5,
+          "unit": "小时",
+          "detail": "已用 1.5 / 5 小时"
+        },
+        {
+          "label": "周限额",
+          "used": 60,
+          "total": 100,
+          "unit": "次",
+          "detail": "已用 60 / 100 次"
+        }
+      ],
+      "color": "#2563EB"
+    },
+    {
+      "name": "DeepSeek",
+      "type": "balance",
+      "icon": "🟢",
+      "balance": 128.50,
+      "currency": "¥",
+      "unit": "元",
+      "detail": "剩余 ¥128.50",
+      "color": "#4D6BFE"
+    },
+    {
+      "name": "MiniMax",
+      "type": "quota",
+      "icon": "🟠",
+      "color": "#EA580C",
+      "items": [
+        { "label": "5小时限额", "used": 0, "total": 0, "unit": "次" },
+        { "label": "周限额",   "used": 0, "total": 0, "unit": "次" }
+      ]
+    }
+  ]
+}

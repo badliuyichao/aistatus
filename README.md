@@ -1,175 +1,130 @@
 # AI API 余额监控悬浮框
 
-> Windows 桌面悬浮框，实时监控 AI 服务（GLM 智谱AI、DeepSeek、MiniMax 稀宇科技 等）的套餐限额和充值余额。
+> 跨平台桌面悬浮框，实时监控 AI 服务（GLM 智谱AI、DeepSeek、MiniMax 稀宇科技）的套餐限额和充值余额。
+
+基于 **Tauri 2（Rust）+ Svelte 5** 重写，支持 **Windows + macOS**。
 
 ## 功能
 
-- 📊 **桌面悬浮显示** — 无边框、置顶、毛玻璃效果
-- 🔄 **自动刷新** — 编辑 `balance.json` 后自动更新显示；启动后每 60 秒定时拉取 API 数据
+- 📊 **桌面悬浮显示** — 无边框、置顶、毛玻璃效果（Win acrylic/mica、mac vibrancy）
+- 🔄 **自动刷新** — 编辑 `balance.json` 后自动更新；启动后每 60 秒定时拉取 API 数据
 - 🎨 **双模式卡片**
-  - **配额型** — 显示已用/总量 + 进度条（适合 GLM 的 5小时限额、周限额）
-  - **余额型** — 显示剩余金额（适合 DeepSeek 充值余额）
-- 🖼️ **品牌图标** — `icons/` 内置 GLM / DeepSeek / MiniMax 的 Logo（未命中名称时回退到 emoji）
-- ⚡ **非阻塞抓取** — 三个 API 在后台线程并行请求（`fetch_worker.py`），刷新期间界面不卡顿
-- 🖱️ **可拖拽** — 拖拽标题栏移动位置
-- 📏 **可拖拽缩放** — 右下角拖拽调整大小
-- 🖥️ **系统托盘** — 最小化到托盘，双击恢复
+  - **配额型** — 已用/总量 + 进度条（GLM 5小时/周限额、MiniMax 同）
+  - **余额型** — 剩余金额（DeepSeek 充值余额）
+- 🖼️ **品牌图标** — 内置 GLM / DeepSeek / MiniMax Logo
+- ⚡ **非阻塞抓取** — 三个 API 在后台 `tokio::join!` 并发请求，刷新期间界面不卡顿
+- 🖱️ **可拖拽 / 可缩放** — 拖拽标题栏移动；无边框窗口原生支持缩放
+- 🖥️ **系统托盘** — 最小化到托盘
 - ⌨️ **快捷键** — `F5` 刷新数据
+- ⚙ **API Key 配置** — 首次运行自动弹窗引导，密钥仅存 Rust 侧（不进 webview DOM）
 
-## 快速开始
+## 架构
 
-### 1. 安装依赖
-
-```bash
-pip install PySide6
+```
+前端 (Svelte 5 + TS)          Rust 后端 (Tauri 2)
+─────────────────────         ──────────────────────
+纯渲染，零网络/零文件IO        所有 I/O 与业务逻辑
+                               · 三 fetcher (reqwest)
+invoke() ──────────────────→   · config.json 密钥
+        └────────────────────   · balance.json 监听+防抖
+listen('services-updated')     · 60s 定时刷新 (tokio)
+                               · 原生毛玻璃/托盘/置顶
 ```
 
-### 2. 编辑数据
+**边界原则**：API 密钥与网络请求**只在 Rust 侧**（规避 CORS、密钥不进前端内存）。
 
-打开 `balance.json`，按格式添加你的服务信息：
+## 目录结构
+
+```
+├── src/                       前端 (Svelte)
+│   ├── App.svelte             主壳：标题栏 + 卡片 + 页脚 + 右键菜单
+│   ├── components/            TitleBar / ServiceCard / QuotaRow / BalanceView / ConfigDialog
+│   ├── stores/services.ts     服务数据响应式状态
+│   ├── api.ts                 Tauri IPC 封装 (invoke + listen)
+│   ├── types.ts               与 Rust 对齐的 TS 类型
+│   └── assets/                品牌 Logo
+├── src-tauri/                 后端 (Rust)
+│   ├── src/
+│   │   ├── data.rs            数据模型 (对齐 legacy Python)
+│   │   ├── config.rs          config.json 读写 (跨平台路径)
+│   │   ├── fetcher/           deepseek / glm / minimax 抓取器
+│   │   ├── merge.rs           三家结果合并进 BalanceData
+│   │   ├── commands.rs        暴露给前端的 #[tauri::command]
+│   │   ├── state.rs           共享状态 + 后台拉取调度
+│   │   └── lib.rs             入口：建窗口 + 定时 + 引导
+│   ├── tauri.conf.json        窗口/包名/打包配置
+│   └── resources/balance.json 首次运行模板
+├── legacy/                    旧版 Python/PySide6 实现（行为参考，已归档）
+└── package.json
+```
+
+## 开发
+
+### 前置要求
+
+- **Rust**（stable）+ cargo
+- **Node.js** 20+
+- **pnpm**（`corepack enable`）
+- **macOS**：Xcode Command Line Tools
+- **Windows**：MSVC build tools + WebView2
+
+### 本地运行
+
+```bash
+pnpm install
+pnpm tauri dev
+```
+
+首次会编译大量 Rust crate（数分钟），后续增量很快。
+
+### 类型检查
+
+```bash
+pnpm check          # 前端 svelte-check
+cd src-tauri && cargo check   # 后端类型检查
+```
+
+## 配置 API Key
+
+首次运行会自动弹出「API Key 配置」对话框（也可随时点标题栏 ⚙ 按钮重开）。密钥存放在跨平台用户配置目录：
+
+| 平台 | 路径 |
+|------|------|
+| macOS | `~/Library/Application Support/aistatus/config.json` |
+| Windows | `%APPDATA%\aistatus\config.json` |
 
 ```json
 {
-  "title": "AI API 余额监控",
-  "services": [
-    {
-      "name": "GLM 智谱AI",
-      "type": "quota",
-      "icon": "🔷",
-      "items": [
-        { "label": "5小时限额", "used": 1.5, "total": 5, "unit": "小时", "detail": "已用 1.5 / 5 小时" },
-        { "label": "周限额", "used": 60, "total": 100, "unit": "次", "detail": "已用 60 / 100 次" }
-      ],
-      "color": "#4F87FF"
-    },
-    {
-      "name": "DeepSeek",
-      "type": "balance",
-      "icon": "🟢",
-      "balance": 128.50,
-      "currency": "¥",
-      "unit": "元",
-      "detail": "剩余 ¥128.50",
-      "color": "#00C853"
-    },
-    {
-      "name": "MiniMax",
-      "type": "quota",
-      "icon": "🟠",
-      "color": "#FF6B35",
-      "items": [
-        { "label": "5小时限额", "used": 0, "total": 0, "unit": "次" },
-        { "label": "周限额",   "used": 0, "total": 0, "unit": "次" }
-      ]
-    }
-  ]
+  "deepseekApiKey": "sk-...",
+  "glmApiKey": "...",
+  "minimaxApiKey": "..."
 }
 ```
-> MiniMax / GLM 的用量条目由脚本实时覆盖，`balance.json` 里只需放占位项即可。
 
-### 3. 启动程序
+| 服务 | 类型 | 获取方式 |
+|------|------|----------|
+| GLM 智谱AI Coding Plan | quota | 智谱开放平台 → API 密钥 |
+| DeepSeek | balance | DeepSeek 开放平台 → API 密钥 |
+| MiniMax 稀宇科技 Coding Plan | quota | MiniMax 用户中心 → API Key |
 
-**双击** `run.bat`，或运行：
-
-```bash
-python main.py
-```
-
-### 4. 使用
-
-- **拖拽** — 按住标题栏拖动悬浮框
-- **缩放** — 右下角拖拽调整大小
-- **右键** — 在悬浮框上右键 → 刷新数据 / 编辑数据 / 退出
-- **托盘** — 右键系统托盘图标 → 显示/退出
-- **⚙ 配置 Key** — 点标题栏的 ⚙ 按钮配置 / 修改 API Key（首次运行会自动弹出）
-- **F5** — 手动刷新数据
-
-## 数据格式
-
-### 配额型 (`type: "quota"`)
-
-适用于有「已用量 / 总量」的套餐限额：
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `name` | string | 服务名称 |
-| `type` | "quota" | 配额类型 |
-| `icon` | string | 显示图标 (emoji) |
-| `items[]` | array | 配额项列表 |
-| `items[].label` | string | 配额名称，如 "5小时限额" |
-| `items[].used` | number | 已用量 |
-| `items[].total` | number | 总量 |
-| `items[].unit` | string | 单位，如 "小时"、"次" |
-| `color` | string | 主题色 (十六进制) |
-
-### 余额型 (`type: "balance"`)
-
-适用于充值余额：
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `name` | string | 服务名称 |
-| `type` | "balance" | 余额类型 |
-| `icon` | string | 显示图标 (emoji) |
-| `balance` | number | 剩余金额 |
-| `currency` | string | 货币符号，如 "¥"、"$" |
-| `unit` | string | 单位，如 "元" |
-| `detail` | string | 详情文本 |
-| `color` | string | 主题色 (十六进制) |
-
-## 扩展
-
-### 添加更多服务
-
-在 `balance.json` 的 `services` 数组中添加新对象即可。支持同时混合多个配额型和余额型服务。
-
-### 自动化更新
-
-你可以通过脚本定期更新 `balance.json`，悬浮框会自动检测变化并刷新显示：
+## 打包分发
 
 ```bash
-# 示例：Python 脚本更新 DeepSeek 余额
-python update_deepseek.py  # 这个脚本通过 API 查询余额并写入 balance.json
+pnpm tauri build
 ```
 
-### 内置 API 抓取器
+- **macOS**：产出 `.app` + `.dmg`（`src-tauri/target/release/bundle/`）
+- **Windows**：产出 MSI / NSIS 安装包
 
-项目已经内置了三个抓取器，会读取已保存的 API key 并刷新对应卡片。
-
-**首次运行会自动弹出「API Key 配置」对话框**（也可随时点悬浮窗标题栏的 ⚙ 按钮重新打开），填入 key 保存即可，无需手动建文件。key 存放在 `config.json`：开发运行在项目根目录，打包为 exe 后在 `%APPDATA%\aistatus\config.json`（重装不丢）。各厂商字段如下：
-
-| 服务 | 类型 | 字段 | 获取方式 |
-|------|------|------|----------|
-| GLM 智谱AI Coding Plan | quota | `glm_api_key` | 智谱开放平台 → API 密钥 |
-| DeepSeek | balance | `deepseek_api_key` | DeepSeek 开放平台 → API 密钥 |
-| MiniMax 稀宇科技 Coding Plan | quota | `minimax_api_key` | [MiniMax 用户中心 Coding Plan](https://platform.minimaxi.com/user-center/payment/coding-plan) → API Key |
-
-`config.json` 示例：
-
-```json
-{
-  "glm_api_key": "...",
-  "deepseek_api_key": "sk-...",
-  "minimax_api_key": "ey..."
-}
-```
+> ⚠ 未签名的 macOS 应用首次打开需右键 → 打开。
 
 ## 技术栈
 
-- **Python 3.10+**
-- **PySide6** (Qt for Python)
-- **Windows DWM Acrylic** (毛玻璃特效)
+- **Rust** + **Tauri 2**（后端 / 原生集成）
+- **Svelte 5** + **TypeScript** + **Vite**（前端）
+- **reqwest / tokio**（异步 HTTP）
+- **window-vibrancy**（原生毛玻璃）
 
-## 打包为 EXE（可选）
+## legacy
 
-```bash
-pip install nuitka
-python -m nuitka --standalone --onefile --windows-disable-console --output-dir=dist main.py
-```
-
-或者使用 PyInstaller：
-
-```bash
-pip install pyinstaller
-pyinstaller --onefile --windowed --name "AI余额监控" main.py
-```
+`legacy/` 目录是重构前的 Python/PySide6 实现（仅 Windows），保留作为**行为规格参考**。三个 fetcher 的解析逻辑、合并规则等都逐字段对照过它。详见 `legacy/README-legacy.md`。

@@ -1,10 +1,24 @@
-# API 密钥等运行期配置，切勿提交
+# ── 运行期配置（含密钥，切勿提交）──
 config.json
+legacy/config.json
 
-# Python 字节码 / 缓存
+# ── Node / 前端 ──
+node_modules/
+dist/
+.svelte-kit/
+*.log
+npm-debug.log*
+.DS_Store
+
+# ── Rust / Tauri ──
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# ── Python 旧版字节码（legacy 目录）──
 __pycache__/
 *.pyc
 
-# 打包产物（见 README 的 EXE 打包说明；.spec 是构建配置，需入库）
+# ── 打包产物 ──
 build/
-dist/
+*.dmg
+*.app

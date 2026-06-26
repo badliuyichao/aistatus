@@ -1,0 +1,35 @@
+:root {
+  /* 卡片底色（无原生毛玻璃时的降级态）。原生 vibrancy/acrylic 启用后，
+     由后端把窗口设为透明，这块底色会透出系统模糊层。 */
+  --card-bg: rgba(221, 228, 239, 0.96);
+  --text-primary: #1e2433;
+  --text-secondary: #586070;
+  --text-muted: #8a92a0;
+
+  color-scheme: light;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Microsoft YaHei", system-ui, sans-serif;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  /* Tauri 无边框透明窗口：body 必须透明，才能露出后端设的毛玻璃层。 */
+  background: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  overflow: hidden;
+}
+
+#app {
+  /* 占满整个 webview；圆角由外层 Tauri 窗口裁剪。 */
+  width: 100vw;
+  height: 100vh;
+}

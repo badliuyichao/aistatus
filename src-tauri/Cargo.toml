@@ -1,0 +1,47 @@
+[package]
+name = "aistatus"
+version = "0.1.0"
+description = "AI API 余额监控悬浮框（Tauri 跨平台重写）"
+authors = ["you"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "aistatus_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# 异步运行时 + 并发 HTTP 拉取三家 API
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "gzip"] }
+futures = "0.3"
+
+# 跨平台用户数据目录（config.json / balance.json）
+dirs = "5"
+
+# balance.json 文件监听 + 防抖
+notify = "6"
+notify-debouncer-mini = { version = "0.4", default-features = false }
+
+# 平台原生毛玻璃（Win acrylic/mica + mac vibrancy），失败降级 CSS
+window-vibrancy = "0.5"
+
+[profile.dev]
+incremental = true
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
