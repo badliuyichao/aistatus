@@ -6,8 +6,6 @@
 //!   - 打开数据文件编辑（`_open_data_file`）
 //!   - 首次无 key 引导（`prompt_for_keys_if_needed`）
 
-use std::process::Command;
-
 use tauri::{AppHandle, Emitter, State};
 
 use crate::config::{self, ApiKeys};
@@ -66,20 +64,16 @@ pub fn needs_key_setup() -> bool {
 }
 
 /// 用系统默认编辑器打开 balance.json。
-/// 对应 legacy `_open_data_file`（Win: notepad；mac: `open -t`）。
+/// 对应 legacy `_open_data_file`。
+///
+/// 走 tauri-plugin-opener 的系统文件关联（底层 `open` crate）：
+/// 用 .json 的默认程序打开（VS Code / 新版记事本等），
+/// 而非硬编码 notepad——后者在老版 Windows 上按 GBK 打开无 BOM 的
+/// UTF-8，会导致中文乱码并可能污染 balance.json。
 #[tauri::command]
 pub fn open_balance_file() -> Result<(), String> {
     let path = config::balance_path();
-    let r = if cfg!(target_os = "windows") {
-        Command::new("notepad").arg(&path).spawn()
-    } else if cfg!(target_os = "macos") {
-        // `open -t` 用默认纯文本编辑器打开
-        Command::new("open").args(["-t", path.to_str().unwrap_or("")]).spawn()
-    } else {
-        // Linux 预留：xdg-open
-        Command::new("xdg-open").arg(&path).spawn()
-    };
-    r.map(|_| ()).map_err(|e| e.to_string())
+    tauri_plugin_opener::open_path(&path, None::<&str>).map_err(|e| e.to_string())
 }
 
 /// 给后台拉取线程用的内部广播：拉取完成后向所有窗口发 `services-updated`。
