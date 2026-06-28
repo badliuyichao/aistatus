@@ -48,17 +48,73 @@ pub fn run() {
             // ── 窗口初始化：毛玻璃 + 初始定位 ──
             // 毛玻璃立即应用；定位延迟到下一帧（setup 阶段 set_position 太早，
             // 会被窗口初始化覆盖）。spawn 让出事件循环，窗口创建完成后再定位。
+            // 配合 tauri.conf.json 的 visible:false：先定位到正确位置，再 show，
+            // 避免窗口在屏幕中间出现后跳到目标位置（视觉跳变）。
             if let Some(window) = app.get_webview_window("main") {
                 // 原生毛玻璃；失败静默（前端 CSS 降级）
                 let _ = backdrop::apply(&window);
                 let win = window.clone();
+                let handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
-                    // 让出当前事件循环，等窗口完成初始化
-                    tokio::task::yield_now().await;
+                    // 让出当前事件循环，等窗口 + 托盘图标完成初始化。
+                    // 注意：仅 yield_now 不够——macOS NSStatusItem 创建后需要
+                    // 一次 runloop 轮回才完成菜单栏排版（把图标摆到右侧正确位置）。
+                    // 提前查 rect() 会拿到排版前的临时坐标。这里补一个短延时，
+                    // 让系统 runloop 有时间排版托盘图标。
+                    tokio::time::sleep(Duration::from_millis(80)).await;
+
                     #[cfg(target_os = "macos")]
-                    anchor_top_right(&win);
+                    {
+                        // 优先：跟随托盘图标真实坐标（与点击托盘弹出位置一致）。
+                        // rect() 是主动查询（读 NSStatusItem.window frame），不依赖点击。
+                        //
+                        // macOS 已知行为：NSStatusItem 的 window.frame 启动早期可能停留在
+                        // 临时坐标（如 x=0，即屏幕左侧），需要系统 runloop 刷新后才反映
+                        // 真实位置。这里轮询 rect() 直到 x 落到屏幕右半区，最多等 ~1.5s，
+                        // 仍异常则降级到屏幕右上角估算。
+                        let screen_w = win
+                            .current_monitor()
+                            .ok()
+                            .flatten()
+                            .map(|m| m.size().width as i32)
+                            .unwrap_or(0);
+
+                        let mut positioned = false;
+                        let mut rect_opt: Option<tauri::Rect> = None;
+                        for _ in 0..15 {
+                            if let Some(tray) = handle.tray_by_id("main") {
+                                if let Ok(Some(rect)) = tray.rect() {
+                                    let x = match &rect.position {
+                                        tauri::Position::Physical(p) => p.x,
+                                        tauri::Position::Logical(p) => p.x as i32,
+                                    };
+                                    // 有效坐标：x 在屏幕右半区（图标确实排在菜单栏右侧）
+                                    if x > screen_w / 2 {
+                                        rect_opt = Some(rect);
+                                        break;
+                                    }
+                                }
+                            }
+                            tokio::time::sleep(Duration::from_millis(100)).await;
+                        }
+
+                        if let Some(rect) = rect_opt {
+                            anchor_near_tray(&win, &rect);
+                            positioned = true;
+                        }
+
+                        // 降级：拿不到图标坐标才用屏幕右上角估算
+                        if !positioned {
+                            anchor_top_right(&win);
+                        }
+                    }
                     #[cfg(not(target_os = "macos"))]
-                    anchor_to_bottom_right(&win);
+                    {
+                        anchor_to_bottom_right(&win);
+                    }
+
+                    // 定位完成后再显示，消除视觉跳变
+                    let _ = win.show();
                 });
             }
 
@@ -67,7 +123,7 @@ pub fn run() {
             let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
 
-            let mut tray = TrayIconBuilder::new()
+            let mut tray = TrayIconBuilder::with_id("main")
                 .tooltip("AI API 余额监控")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
