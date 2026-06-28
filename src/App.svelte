@@ -8,6 +8,7 @@
   import ConfigDialog from "./components/ConfigDialog.svelte";
   import { services } from "./stores/services.svelte";
   import { needsKeySetup, openBalanceFile } from "./api";
+  import { listen } from "@tauri-apps/api/event";
   import { formatTime } from "./types";
 
   const isMac =
@@ -18,6 +19,7 @@
   let showMenu = $state(false);
   let menuX = $state(0);
   let menuY = $state(0);
+  let unlistenOpenConfig: (() => void) | null = null;
 
   onMount(async () => {
     await services.init();
@@ -29,9 +31,16 @@
     } catch (e) {
       console.error("needs_key_setup failed", e);
     }
+    // 托盘菜单「设置」→ 后端发 open-config 事件，前端打开配置对话框
+    unlistenOpenConfig = await listen("open-config", () => {
+      showConfig = true;
+    });
   });
 
-  onDestroy(() => services.destroy());
+  onDestroy(() => {
+    services.destroy();
+    unlistenOpenConfig?.();
+  });
 
   // F5 刷新（对应 legacy QShortcut F5）
   function onKeydown(e: KeyboardEvent) {
@@ -84,9 +93,7 @@
 
 <div class="app" role="application" oncontextmenu={onContextMenu}>
   <div class="bg-card">
-    <div class="titlebar" class:mac={isMac} data-tauri-drag-region>
-      <span class="title" data-tauri-drag-region>{services.data.title}</span>
-    </div>
+    <div class="titlebar" class:mac={isMac} data-tauri-drag-region></div>
     <div class="separator"></div>
 
     <div class="scroll">
@@ -132,20 +139,16 @@
     overflow: hidden;
   }
   .titlebar {
-    height: 36px;
-    min-height: 36px;
+    /* 仅作为窗口拖拽区 + mac 红绿灯占位，无文字，保持低高度清爽 */
+    height: 28px;
+    min-height: 28px;
     display: flex;
     align-items: center;
     padding: 0 12px;
   }
   .titlebar.mac {
-    /* macOS 原生红绿灯(Overlay)占据左上角约 70px，标题右移避让 */
+    /* macOS 原生红绿灯(Overlay)占据左上角，留出空间避免遮挡下方内容 */
     padding-left: 78px;
-  }
-  .title {
-    color: #1e2433;
-    font-size: 13px;
-    font-weight: 600;
   }
   .separator {
     height: 1px;

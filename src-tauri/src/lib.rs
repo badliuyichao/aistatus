@@ -19,8 +19,8 @@ use std::time::Duration;
 
 use tauri::{
     menu::{Menu, MenuItem},
-    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, PhysicalPosition, Rect,
+    tray::TrayIconBuilder,
+    Emitter, Manager, PhysicalPosition, Rect,
 };
 
 use config::load_keys;
@@ -36,6 +36,15 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(AppState::new(initial_keys))
+        // macOS：点红绿灯红色（关闭）不退出进程，改为隐藏窗口（常驻托盘）。
+        // 真正退出只能通过托盘菜单「退出」。对齐原生 mac 后台应用行为。
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                // 阻止默认关闭，仅隐藏窗口
+                api.prevent_close();
+                let _ = window.hide();
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             commands::get_services,
             commands::get_keys,
@@ -45,6 +54,14 @@ pub fn run() {
             commands::open_balance_file,
         ])
         .setup(|app| {
+            // macOS：设为 Accessory（后台应用），不显示在 Dock 栏。
+            // 配合红绿灯「关闭=隐藏窗口」+ 托盘常驻，形成标准 mac 后台应用。
+            #[cfg(target_os = "macos")]
+            {
+                use tauri::ActivationPolicy;
+                let _ = app.set_activation_policy(ActivationPolicy::Accessory);
+            }
+
             // ── 窗口初始化：毛玻璃 + 初始定位 ──
             // 毛玻璃立即应用；定位延迟到下一帧（setup 阶段 set_position 太早，
             // 会被窗口初始化覆盖）。spawn 让出事件循环，窗口创建完成后再定位。
@@ -123,45 +140,45 @@ pub fn run() {
                         anchor_to_bottom_right(&win);
                     }
 
-                    // 定位完成后再显示，消除视觉跳变
-                    let _ = win.show();
+                    // 仅定位，不显示——窗口默认隐藏，用户通过托盘菜单
+                    // 「打开主界面」唤起。坐标已算好，唤起时即可就位。
                 });
             }
 
-            // ── 系统托盘：显示 / 退出 ──
-            let show_item = MenuItem::with_id(app, "show", "显示", true, None::<&str>)?;
+            // ── 系统托盘菜单 ──
+            // 左键/右键点击托盘都弹出此菜单。窗口默认隐藏，通过「打开主界面」显示。
+            let show_item = MenuItem::with_id(app, "show", "打开主界面", true, None::<&str>)?;
+            let config_item = MenuItem::with_id(app, "config", "设置…", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+            let menu = Menu::with_items(app, &[&show_item, &config_item, &quit_item])?;
 
             let mut tray = TrayIconBuilder::with_id("main")
                 .tooltip("AI API 余额监控")
                 .menu(&menu)
-                .show_menu_on_left_click(false)
+                // 左键点击也显示菜单（与右键行为一致）
+                .show_menu_on_left_click(true)
                 .on_menu_event(|app, event| match event.id().as_ref() {
-                    "show" => show_main_window(app),
-                    "quit" => app.exit(0),
-                    _ => {}
-                })
-                .on_tray_icon_event(|tray, event| {
-                    // 点击托盘图标 → 显示窗口（对应 legacy _on_tray_activated）
-                    if let TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        button_state: MouseButtonState::Up,
-                        rect,
-                        ..
-                    } = event
-                    {
-                        let app = tray.app_handle();
-                        // macOS：窗口跟随托盘图标位置弹出（水平居中于图标，
-                        // 顶部贴菜单栏下方，像原生菜单栏下拉面板）
+                    "show" => {
+                        // 打开主界面：macOS 上跟随托盘图标位置弹出，再显示并聚焦
                         #[cfg(target_os = "macos")]
                         {
-                            if let Some(window) = app.get_webview_window("main") {
-                                anchor_near_tray(&window, &rect);
+                            if let Some(tray) = app.tray_by_id("main") {
+                                if let Ok(Some(rect)) = tray.rect() {
+                                    if let Some(window) = app.get_webview_window("main") {
+                                        anchor_near_tray(&window, &rect);
+                                    }
+                                }
                             }
                         }
                         show_main_window(app);
                     }
+                    "config" => {
+                        // 设置：显示主窗口并通知前端打开配置对话框
+                        show_main_window(app);
+                        let _ = app.emit("open-config", ());
+                    }
+                    "quit" => app.exit(0),
+                    _ => {}
                 });
 
             // 托盘图标：优先用打包的图标文件
