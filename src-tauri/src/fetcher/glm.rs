@@ -47,8 +47,10 @@ struct GlmLimit {
     usage: Option<f64>,
     #[serde(default, rename = "currentValue")]
     current_value: Option<f64>,
+    // 对齐 legacy Python `limit.get("percentage", 0)`：缺省当作 0 而非 None，
+    // 避免 TOKENS_LIMIT 条目因 percentage 字段缺失被静默丢弃。
     #[serde(default)]
-    percentage: Option<f64>,
+    percentage: f64,
     #[serde(default)]
     unit: Option<i64>,
     #[serde(default)]
@@ -64,20 +66,32 @@ pub async fn fetch(api_key: &str) -> Option<GlmResult> {
         return None;
     }
 
-    let resp = crate::fetcher::http_client()
+    let resp = match crate::fetcher::http_client()
         .get(GLM_QUOTA_URL)
         .header(ACCEPT, "application/json")
         .header(AUTHORIZATION, format!("Bearer {api_key}"))
         .send()
         .await
-        .ok()?;
+    {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("[GlmFetcher] network error: {e}");
+            return None;
+        }
+    };
 
     if !resp.status().is_success() {
         eprintln!("[GlmFetcher] HTTP {} (check api_key / rate limit)", resp.status());
         return None;
     }
 
-    let body: GlmResp = resp.json().await.ok()?;
+    let body: GlmResp = match resp.json().await {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("[GlmFetcher] invalid JSON response: {e}");
+            return None;
+        }
+    };
 
     // code != 200 或无 data → None
     if body.code != 200 {
@@ -100,6 +114,7 @@ pub async fn fetch(api_key: &str) -> Option<GlmResult> {
     for limit in data.limits {
         let total_val = limit.usage;
         let used_val = limit.current_value;
+        // percentage 缺省按 0 处理（对齐 legacy）；不再因 pct 缺失跳过整条
         let pct = limit.percentage;
 
         if limit.limit_type == "TIME_LIMIT" {
@@ -125,47 +140,46 @@ pub async fn fetch(api_key: &str) -> Option<GlmResult> {
         }
 
         if limit.limit_type == "TOKENS_LIMIT" {
-            // 对应 Python `if pct is not None`
-            if let Some(pct) = pct {
-                let label = match (limit.unit.unwrap_or(0), limit.number.unwrap_or(0)) {
-                    (3, 5) => "5小时限额",
-                    (6, 1) => "周限额",
-                    _ => "Token限额",
-                };
+            // 对齐 legacy Python：limit_type == "TOKENS_LIMIT" 即进入处理
+            // （Python 的 `pct is not None` 因缺省为 0 永远成立）
+            let label = match (limit.unit.unwrap_or(0), limit.number.unwrap_or(0)) {
+                (3, 5) => "5小时限额",
+                (6, 1) => "周限额",
+                _ => "Token限额",
+            };
 
-                // 有绝对值 → tokens 条
-                if let Some(t) = total_val {
-                    if t > 0.0 {
-                        let used = used_val.unwrap_or(0.0);
-                        items.push(QuotaItem {
-                            label: label.into(),
-                            used,
-                            total: t,
-                            unit: "tokens".into(),
-                            detail: format!(
-                                "已用 {} / {} ({}%)",
-                                fmt_tokens(used),
-                                fmt_tokens(t),
-                                pct as i64
-                            ),
-                        });
-                        continue;
-                    }
+            // 有绝对值 → tokens 条
+            if let Some(t) = total_val {
+                if t > 0.0 {
+                    let used = used_val.unwrap_or(0.0);
+                    items.push(QuotaItem {
+                        label: label.into(),
+                        used,
+                        total: t,
+                        unit: "tokens".into(),
+                        detail: format!(
+                            "已用 {} / {} ({}%)",
+                            fmt_tokens(used),
+                            fmt_tokens(t),
+                            pct as i64
+                        ),
+                    });
+                    continue;
                 }
-                // 只有百分比 → 百分比条
-                let reset = fmt_duration(limit.next_reset_time.unwrap_or(0.0) - now_ms);
-                items.push(QuotaItem {
-                    label: label.into(),
-                    used: pct,
-                    total: 100.0,
-                    unit: "%".into(),
-                    detail: if reset.is_empty() {
-                        String::new()
-                    } else {
-                        format!("{reset}后重置")
-                    },
-                });
             }
+            // 只有百分比 → 百分比条
+            let reset = fmt_duration(limit.next_reset_time.unwrap_or(0.0) - now_ms);
+            items.push(QuotaItem {
+                label: label.into(),
+                used: pct,
+                total: 100.0,
+                unit: "%".into(),
+                detail: if reset.is_empty() {
+                    String::new()
+                } else {
+                    format!("{reset}后重置")
+                },
+            });
         }
     }
 

@@ -19,12 +19,15 @@ const MINIMAX_QUOTA_URL: &str =
     "https://www.minimaxi.com/v1/api/openplatform/coding_plan/remains";
 
 /// 官方响应体（只取需要的字段）。
-#[derive(serde::Deserialize, Debug)]
+#[derive(serde::Deserialize, Debug, Default)]
 struct MinimaxResp {
     #[serde(default)]
     base_resp: Option<BaseResp>,
+    // 用 Option + default 容错 API 返回 "model_remains": null
+    // （对齐 legacy Python `body.get("model_remains") or []`）。否则 serde 对
+    // null 反序列化 Vec 会失败，整个响应被静默吞掉，导致 MiniMax 整卡消失。
     #[serde(default)]
-    model_remains: Vec<ModelRemain>,
+    model_remains: Option<Vec<ModelRemain>>,
 }
 
 #[derive(serde::Deserialize, Debug, Default)]
@@ -89,20 +92,32 @@ pub async fn fetch(api_key: &str) -> Option<MinimaxResult> {
         return None;
     }
 
-    let resp = crate::fetcher::http_client()
+    let resp = match crate::fetcher::http_client()
         .get(MINIMAX_QUOTA_URL)
         .header(ACCEPT, "application/json")
         .header(AUTHORIZATION, format!("Bearer {api_key}"))
         .send()
         .await
-        .ok()?;
+    {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("[MiniMaxFetcher] network error: {e}");
+            return None;
+        }
+    };
 
     if !resp.status().is_success() {
         eprintln!("[MiniMaxFetcher] HTTP {} (check api_key / rate limit)", resp.status());
         return None;
     }
 
-    let body: MinimaxResp = resp.json().await.ok()?;
+    let body: MinimaxResp = match resp.json().await {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("[MiniMaxFetcher] invalid JSON response: {e}");
+            return None;
+        }
+    };
 
     // base_resp.status_code 非 0/None → API 错误占位
     if let Some(br) = &body.base_resp {
@@ -120,7 +135,8 @@ pub async fn fetch(api_key: &str) -> Option<MinimaxResult> {
         }
     }
 
-    if body.model_remains.is_empty() {
+    let remains = body.model_remains.as_deref().unwrap_or(&[]);
+    if remains.is_empty() {
         eprintln!("[MiniMaxFetcher] no model_remains in response (plan not active?)");
         return Some(MinimaxResult {
             name: "MiniMax".into(),
@@ -131,7 +147,7 @@ pub async fn fetch(api_key: &str) -> Option<MinimaxResult> {
         });
     }
 
-    let models = &body.model_remains;
+    let models = remains;
 
     // 两个窗口聚合
     let interval = aggregate_window(

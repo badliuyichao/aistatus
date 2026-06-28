@@ -15,9 +15,15 @@ class ServicesStore {
   refreshing = $state(false);
 
   private unlisten?: () => void;
+  private inited = false;
+  // 用于区分本次 refresh 的兜底定时器，避免旧定时器误清新刷新状态
+  private refreshToken = 0;
+  private refreshTimer: number | undefined;
 
-  /** 启动时调一次：拉初始数据 + 订阅后端事件。 */
+  /** 启动时调一次：拉初始数据 + 订阅后端事件。重复调用会被忽略。 */
   async init() {
+    if (this.inited) return;
+    this.inited = true;
     try {
       this.data = await getServices();
     } catch (e) {
@@ -25,6 +31,7 @@ class ServicesStore {
     }
     this.unlisten = await onServicesUpdated((d) => {
       this.data = d;
+      this.clearRefreshTimer();
       this.refreshing = false;
     });
   }
@@ -37,10 +44,28 @@ class ServicesStore {
     } catch (e) {
       console.error("refresh_now failed", e);
       this.refreshing = false;
+      return;
+    }
+    // 兜底：后端防重入丢弃刷新时不 emit services-updated，refreshing 会卡 true。
+    // 这里加超时复位，避免 footer 永久显示「刷新中…」。
+    // 正常情况 onServicesUpdated 回调会先把它置 false；超时仅作保底。
+    const token = ++this.refreshToken;
+    this.refreshTimer = window.setTimeout(() => {
+      if (this.refreshToken === token) {
+        this.refreshing = false;
+      }
+    }, 15000);
+  }
+
+  private clearRefreshTimer() {
+    if (this.refreshTimer !== undefined) {
+      clearTimeout(this.refreshTimer);
+      this.refreshTimer = undefined;
     }
   }
 
   destroy() {
+    this.clearRefreshTimer();
     this.unlisten?.();
   }
 }

@@ -19,6 +19,7 @@
   let showMenu = $state(false);
   let menuX = $state(0);
   let menuY = $state(0);
+  let menuEl: HTMLDivElement | undefined = $state();
   let unlistenOpenConfig: (() => void) | null = null;
 
   onMount(async () => {
@@ -52,10 +53,22 @@
 
   function onContextMenu(e: MouseEvent) {
     e.preventDefault();
+    // 初始用点击坐标，随后由 $effect 钳制到视口内防止溢出被裁剪
     menuX = e.clientX;
     menuY = e.clientY;
     showMenu = true;
   }
+
+  // 菜单显示后测量尺寸并钳制，避免靠近右/下边界时溢出窗口被裁剪
+  $effect(() => {
+    if (!showMenu || !menuEl) return;
+    const w = menuEl.offsetWidth;
+    const h = menuEl.offsetHeight;
+    menuX = Math.min(menuX, window.innerWidth - w - 4);
+    menuY = Math.min(menuY, window.innerHeight - h - 4);
+    menuX = Math.max(4, menuX);
+    menuY = Math.max(4, menuY);
+  });
 
   async function refresh() {
     showMenu = false;
@@ -115,7 +128,7 @@
 </div>
 
 {#if showMenu}
-  <div class="ctx-menu" style="left:{menuX}px; top:{menuY}px">
+  <div class="ctx-menu" bind:this={menuEl} style="left:{menuX}px; top:{menuY}px">
     <button onclick={refresh}>刷新数据</button>
     <button onclick={editData}>编辑数据文件</button>
     <button onclick={openConfig}>配置 API Key</button>

@@ -11,6 +11,7 @@
 //!   4. emit `services-updated` 给前端
 
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use futures::future::join3;
 use tauri::{AppHandle, Emitter, Manager};
@@ -26,7 +27,8 @@ pub struct AppState {
     /// 当前展示数据快照（get_services 返回它）。
     snapshot: tokio::sync::Mutex<BalanceData>,
     /// 防重入：正在拉取时为 true，新请求被丢弃。
-    busy: AtomicBool,
+    /// Arc 便于 BusyGuard 跨 await/panic 边界持有，Drop 时复位。
+    busy: Arc<AtomicBool>,
 }
 
 impl AppState {
@@ -42,7 +44,7 @@ impl AppState {
         Self {
             keys: tokio::sync::Mutex::new(initial_keys),
             snapshot: tokio::sync::Mutex::new(data),
-            busy: AtomicBool::new(false),
+            busy: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -61,6 +63,9 @@ impl AppState {
     /// 关联函数（不接 &self）：调用方只需传 AppHandle，内部通过
     /// `app.state::<AppState>()` 取状态——这样调用处不存在 borrow/move
     /// 冲突，`handle` 可以直接 move 进 async block。
+    ///
+    /// busy 复位用 BusyGuard（Drop），即使 do_fetch_and_emit panic 也会复位，
+    /// 避免 busy 永久卡 true 导致常驻后台进程后续刷新全部静默失效。
     pub async fn request_refresh(app: AppHandle) {
         let state = app.state::<AppState>();
         // 防重入
@@ -69,11 +74,25 @@ impl AppState {
         }
 
         let keys = state.keys.lock().await.clone();
+        // 克隆 busy 的 Arc 到 guard，使其在 spawn 的 future 内独立持有
+        let busy = state.busy.clone();
         tokio::spawn(async move {
+            // guard 在 Drop 时复位 busy；即使下方 panic 也保证复位。
+            // 放在 future 顶部，覆盖整个 do_fetch_and_emit 作用域。
+            let _guard = BusyGuard(busy);
             let state = app.state::<AppState>();
             do_fetch_and_emit(state.inner(), &keys, &app).await;
-            state.busy.store(false, Ordering::SeqCst);
         });
+    }
+}
+
+/// busy 标志的 RAII 守卫：Drop 时把 busy 复位为 false。
+/// 保证即使被守卫的作用域内 panic，busy 也不会永久卡死（对常驻后台进程至关重要）。
+struct BusyGuard(Arc<AtomicBool>);
+
+impl Drop for BusyGuard {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
     }
 }
 

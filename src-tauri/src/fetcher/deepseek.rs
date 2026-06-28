@@ -56,13 +56,19 @@ pub async fn fetch(api_key: &str) -> Option<DeepSeekResult> {
         return None;
     }
 
-    let resp = crate::fetcher::http_client()
+    let resp = match crate::fetcher::http_client()
         .get(DEEPSEEK_BALANCE_URL)
         .header(ACCEPT, "application/json")
         .header(AUTHORIZATION, format!("Bearer {api_key}"))
         .send()
         .await
-        .ok()?;
+    {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("[DeepSeekFetcher] network error: {e}");
+            return None;
+        }
+    };
 
     // 4xx/5xx → None（Python 打 HTTP 错日志后 return None）
     if !resp.status().is_success() {
@@ -70,7 +76,13 @@ pub async fn fetch(api_key: &str) -> Option<DeepSeekResult> {
         return None;
     }
 
-    let body: DeepSeekResp = resp.json().await.ok()?;
+    let body: DeepSeekResp = match resp.json().await {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("[DeepSeekFetcher] invalid JSON response: {e}");
+            return None;
+        }
+    };
 
     // 账户不可用 → 红色占位（Python 同样逻辑）
     if !body.is_available {
