@@ -1,13 +1,18 @@
 <script lang="ts">
-  // 主壳：标题栏 + 卡片列表 + 页脚 + 右键菜单 + F5 + 首次引导。
+  // 主壳：标题区 + 卡片列表 + 页脚 + 右键菜单 + F5 + 首次引导。
   // 对应 legacy widget.py 的 MainWidget。
+  // macOS 用原生红绿灯（关闭/最小化/全屏），窗口控制不再用自定义按钮；
+  // 配置入口移到右键菜单。窗口默认 alwaysOnTop（见 tauri.conf.json）。
   import { onMount, onDestroy } from "svelte";
-  import TitleBar from "./components/TitleBar.svelte";
   import ServiceCard from "./components/ServiceCard.svelte";
   import ConfigDialog from "./components/ConfigDialog.svelte";
   import { services } from "./stores/services.svelte";
-  import { needsKeySetup, openBalanceFile, refreshNow } from "./api";
+  import { needsKeySetup, openBalanceFile } from "./api";
   import { formatTime } from "./types";
+
+  const isMac =
+    typeof navigator !== "undefined" &&
+    /mac/i.test(navigator.userAgent || navigator.platform);
 
   let showConfig = $state(false);
   let showMenu = $state(false);
@@ -79,7 +84,9 @@
 
 <div class="app" role="application" oncontextmenu={onContextMenu}>
   <div class="bg-card">
-    <TitleBar title={services.data.title} onconfig={openConfig} />
+    <div class="titlebar" class:mac={isMac} data-tauri-drag-region>
+      <span class="title" data-tauri-drag-region>{services.data.title}</span>
+    </div>
     <div class="separator"></div>
 
     <div class="scroll">
@@ -123,6 +130,22 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+  }
+  .titlebar {
+    height: 36px;
+    min-height: 36px;
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+  }
+  .titlebar.mac {
+    /* macOS 原生红绿灯(Overlay)占据左上角约 70px，标题右移避让 */
+    padding-left: 78px;
+  }
+  .title {
+    color: #1e2433;
+    font-size: 13px;
+    font-weight: 600;
   }
   .separator {
     height: 1px;

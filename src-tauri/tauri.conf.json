@@ -19,11 +19,13 @@
         "minWidth": 300,
         "minHeight": 200,
         "resizable": true,
-        "decorations": false,
+        "decorations": true,
+        "titleBarStyle": "Overlay",
         "transparent": true,
         "alwaysOnTop": true,
         "skipTaskbar": false,
         "shadow": false,
+        "hiddenTitle": true,
         "visible": false
       }
     ],

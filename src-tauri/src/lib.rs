@@ -53,6 +53,16 @@ pub fn run() {
             if let Some(window) = app.get_webview_window("main") {
                 // 原生毛玻璃；失败静默（前端 CSS 降级）
                 let _ = backdrop::apply(&window);
+
+                // 窗口装饰按平台区分（config 里 decorations:true 是为 macOS 创建
+                // 带红绿灯的标题栏；mac 的 titleBarStyle:Overlay + hiddenTitle 让
+                // 标题栏透明、只剩红绿灯叠加在内容上）。
+                // 非 mac 平台：关掉装饰，用无边框悬浮框观感。
+                #[cfg(not(target_os = "macos"))]
+                {
+                    let _ = window.set_decorations(false);
+                }
+
                 let win = window.clone();
                 let handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
