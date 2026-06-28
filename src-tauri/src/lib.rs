@@ -20,7 +20,7 @@ use std::time::Duration;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, PhysicalPosition,
+    Manager, PhysicalPosition, Rect,
 };
 
 use config::load_keys;
@@ -45,12 +45,21 @@ pub fn run() {
             commands::open_balance_file,
         ])
         .setup(|app| {
-            // ── 窗口初始化：毛玻璃 + 锚定右下角 ──
+            // ── 窗口初始化：毛玻璃 + 初始定位 ──
+            // 毛玻璃立即应用；定位延迟到下一帧（setup 阶段 set_position 太早，
+            // 会被窗口初始化覆盖）。spawn 让出事件循环，窗口创建完成后再定位。
             if let Some(window) = app.get_webview_window("main") {
                 // 原生毛玻璃；失败静默（前端 CSS 降级）
                 let _ = backdrop::apply(&window);
-                // 锚定主屏右下角（对应 legacy _anchor_to_bottom_right）
-                anchor_to_bottom_right(&window);
+                let win = window.clone();
+                tauri::async_runtime::spawn(async move {
+                    // 让出当前事件循环，等窗口完成初始化
+                    tokio::task::yield_now().await;
+                    #[cfg(target_os = "macos")]
+                    anchor_top_right(&win);
+                    #[cfg(not(target_os = "macos"))]
+                    anchor_to_bottom_right(&win);
+                });
             }
 
             // ── 系统托盘：显示 / 退出 ──
@@ -68,14 +77,23 @@ pub fn run() {
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
-                    // 双击托盘图标 → 显示窗口（对应 legacy _on_tray_activated）
+                    // 点击托盘图标 → 显示窗口（对应 legacy _on_tray_activated）
                     if let TrayIconEvent::Click {
                         button: MouseButton::Left,
                         button_state: MouseButtonState::Up,
+                        rect,
                         ..
                     } = event
                     {
                         let app = tray.app_handle();
+                        // macOS：窗口跟随托盘图标位置弹出（水平居中于图标，
+                        // 顶部贴菜单栏下方，像原生菜单栏下拉面板）
+                        #[cfg(target_os = "macos")]
+                        {
+                            if let Some(window) = app.get_webview_window("main") {
+                                anchor_near_tray(&window, &rect);
+                            }
+                        }
                         show_main_window(app);
                     }
                 });
@@ -119,7 +137,8 @@ fn show_main_window(app: &tauri::AppHandle) {
 }
 
 /// 把窗口移到主屏工作区右下角（排除 Dock/任务栏）。
-/// 对应 legacy `_anchor_to_bottom_right`。
+/// 对应 legacy `_anchor_to_bottom_right`。Windows 及其他平台用。
+#[cfg(not(target_os = "macos"))]
 fn anchor_to_bottom_right(window: &tauri::WebviewWindow) {
     let monitor = match window.current_monitor() {
         Ok(Some(m)) => m,
@@ -141,5 +160,69 @@ fn anchor_to_bottom_right(window: &tauri::WebviewWindow) {
     // 钳制不滑出左上角
     let x = x.max(mon_pos.x as i32);
     let y = y.max(mon_pos.y as i32);
+    let _ = window.set_position(PhysicalPosition { x, y });
+}
+
+/// macOS 启动默认位置：主屏右上角、菜单栏正下方。
+/// （之后点击托盘图标会由 anchor_near_tray 动态跟随）
+#[cfg(target_os = "macos")]
+fn anchor_top_right(window: &tauri::WebviewWindow) {
+    let monitor = match window.current_monitor() {
+        Ok(Some(m)) => m,
+        _ => return,
+    };
+    let mon_size = monitor.size();
+    let mon_pos = monitor.position();
+    let win_size = match window.outer_size() {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    // 右上角：x = 屏幕右边 - 窗口宽 - 留白；
+    // y = 菜单栏高度（约 25px）+ 小留白，紧贴菜单栏下方。
+    let x = mon_pos.x as i32 + mon_size.width as i32 - win_size.width as i32 - WINDOW_SCREEN_MARGIN;
+    let menu_bar_h: i32 = 25; // macOS 菜单栏固定高度
+    let y = mon_pos.y as i32 + menu_bar_h + 4;
+    let _ = window.set_position(PhysicalPosition { x, y });
+}
+
+/// macOS：窗口跟随托盘图标弹出。
+/// 水平居中于图标中心，顶部贴菜单栏下方（图标底部），并做屏幕边界钳制。
+/// 这是 macOS 原生菜单栏下拉面板的标准定位方式。
+#[cfg(target_os = "macos")]
+fn anchor_near_tray(window: &tauri::WebviewWindow, icon_rect: &Rect) {
+    let monitor = match window.current_monitor() {
+        Ok(Some(m)) => m,
+        _ => return,
+    };
+    let mon_size = monitor.size();
+    let mon_pos = monitor.position();
+    let win_size = match window.outer_size() {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    // 托盘图标矩形：Rect<Position>，position/size 是字段；
+    // Position/Size 是枚举（Physical/Logical），这里按物理像素解包。
+    let (icon_x, icon_y) = match &icon_rect.position {
+        tauri::Position::Physical(p) => (p.x, p.y),
+        tauri::Position::Logical(p) => (p.x as i32, p.y as i32),
+    };
+    let (icon_w, icon_h) = match &icon_rect.size {
+        tauri::Size::Physical(s) => (s.width as i32, s.height as i32),
+        tauri::Size::Logical(s) => (s.width as i32, s.height as i32),
+    };
+    let icon_center_x = icon_x + icon_w / 2;
+
+    // 窗口水平居中于图标中心
+    let mut x = icon_center_x - win_size.width as i32 / 2;
+    // 顶部贴图标底部（即菜单栏下方）
+    let y = icon_y + icon_h + 4;
+
+    // 水平钳制：不滑出屏幕左右边界
+    let min_x = mon_pos.x as i32 + WINDOW_SCREEN_MARGIN;
+    let max_x = mon_pos.x as i32 + mon_size.width as i32 - win_size.width as i32 - WINDOW_SCREEN_MARGIN;
+    x = x.clamp(min_x, max_x.max(min_x));
+
     let _ = window.set_position(PhysicalPosition { x, y });
 }
