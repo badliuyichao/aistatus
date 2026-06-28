@@ -11,6 +11,7 @@
 //!   - 余额 > 10 → 蓝色 #4D6BFE，否则 → 红色 #FF5252
 
 use reqwest::header::{ACCEPT, AUTHORIZATION};
+use serde::Deserializer;
 
 use crate::data::DeepSeekResult;
 
@@ -27,10 +28,25 @@ struct DeepSeekResp {
 
 #[derive(serde::Deserialize, Debug)]
 struct BalanceInfo {
-    #[serde(default)]
+    // DeepSeek 官方 API 返回的 total_balance 是【字符串】（如 "65.02"），
+    // 而非 JSON 数字。用 deserialize_f64 兼容字符串与数字两种格式，
+    // 对齐 legacy Python 的 `float(info.get("total_balance", 0))`。
+    #[serde(default, deserialize_with = "deserialize_f64")]
     total_balance: f64,
     #[serde(default)]
     currency: String,
+}
+
+/// 反序列化 f64，兼容 JSON 数字与字符串（如 "65.02" / 65.02）。
+/// 解析失败或缺失时返回 0.0（对齐 Python float() 兜底语义）。
+fn deserialize_f64<'de, D: Deserializer<'de>>(de: D) -> Result<f64, D::Error> {
+    use serde::Deserialize;
+    let v = serde_json::Value::deserialize(de)?;
+    Ok(match v {
+        serde_json::Value::Number(n) => n.as_f64().unwrap_or(0.0),
+        serde_json::Value::String(s) => s.parse().unwrap_or(0.0),
+        _ => 0.0,
+    })
 }
 
 /// 拉取 DeepSeek 余额。无 key 或失败返回 None。
