@@ -1,22 +1,28 @@
-# AI API 余额监控悬浮框
+# AI API 余额监控
 
-> 跨平台桌面悬浮框，实时监控 AI 服务（GLM 智谱AI、DeepSeek、MiniMax 稀宇科技）的套餐限额和充值余额。
+> 跨平台常驻托盘应用，实时监控 AI 服务（GLM 智谱AI、DeepSeek、MiniMax 稀宇科技）的套餐限额和充值余额。
 
-基于 **Tauri 2（Rust）+ Svelte 5** 重写，支持 **Windows + macOS**。
+基于 **Tauri 2（Rust）+ Svelte 5**，支持 **Windows + macOS**。
 
 ## 功能
 
-- 📊 **桌面悬浮显示** — 无边框、置顶、毛玻璃效果（Win acrylic/mica、mac vibrancy）
-- 🔄 **自动刷新** — 编辑 `balance.json` 后自动更新；启动后每 60 秒定时拉取 API 数据
+- 🖥️ **常驻系统托盘** — 启动后驻留托盘（macOS 不显示 Dock 图标，Windows 不进任务栏），点击托盘图标弹出菜单
+- 🧭 **窗口唤起** — 托盘菜单「打开主界面」唤起悬浮窗；macOS 上窗口跟随托盘图标位置弹出
+- 📊 **悬浮展示** — 置顶、无边框、毛玻璃（Win acrylic/mica、mac vibrancy）
+- 🔄 **自动刷新** — 启动后台拉取一次，之后每 60 秒定时刷新；随时 `F5` 手动刷新
 - 🎨 **双模式卡片**
   - **配额型** — 已用/总量 + 进度条（GLM 5小时/周限额、MiniMax 同）
   - **余额型** — 剩余金额（DeepSeek 充值余额）
 - 🖼️ **品牌图标** — 内置 GLM / DeepSeek / MiniMax Logo
 - ⚡ **非阻塞抓取** — 三个 API 在后台 `tokio::join!` 并发请求，刷新期间界面不卡顿
-- 🖱️ **可拖拽 / 可缩放** — 拖拽标题栏移动；无边框窗口原生支持缩放
-- 🖥️ **系统托盘** — 最小化到托盘
-- ⌨️ **快捷键** — `F5` 刷新数据
-- ⚙ **API Key 配置** — 首次运行自动弹窗引导，密钥仅存 Rust 侧（不进 webview DOM）
+- 🔴 **原生窗口控制** — macOS 红绿灯（关闭/最小化/全屏），关闭按钮=隐藏窗口（保留进程）
+- 🖱️ **右键菜单** — 刷新数据 / 编辑数据文件 / 配置 API Key
+- ⚙ **API Key 配置** — 托盘「设置…」或右键「配置 API Key」打开对话框；密钥仅存 Rust 侧（不进 webview DOM）
+
+## 退出与关闭
+
+- **关闭窗口**（macOS 红绿灯红色 / Windows 关闭）：仅隐藏窗口，进程驻留托盘继续后台刷新
+- **真正退出**：只能通过托盘菜单「退出」
 
 ## 架构
 
@@ -26,9 +32,10 @@
 纯渲染，零网络/零文件IO        所有 I/O 与业务逻辑
                                · 三 fetcher (reqwest)
 invoke() ──────────────────→   · config.json 密钥
-        └────────────────────   · balance.json 监听+防抖
-listen('services-updated')     · 60s 定时刷新 (tokio)
-                               · 原生毛玻璃/托盘/置顶
+        └────────────────────   · 60s 定时刷新 (tokio)
+listen('services-updated')     · balance.json 模板
+listen('open-config')          · 原生毛玻璃/托盘/窗口定位
+                               · macOS 红绿灯关闭拦截
 ```
 
 **边界原则**：API 密钥与网络请求**只在 Rust 侧**（规避 CORS、密钥不进前端内存）。
@@ -37,8 +44,8 @@ listen('services-updated')     · 60s 定时刷新 (tokio)
 
 ```
 ├── src/                       前端 (Svelte)
-│   ├── App.svelte             主壳：标题栏 + 卡片 + 页脚 + 右键菜单
-│   ├── components/            TitleBar / ServiceCard / QuotaRow / BalanceView / ConfigDialog
+│   ├── App.svelte             主壳：标题区 + 卡片 + 页脚 + 右键菜单 + 托盘事件
+│   ├── components/            ServiceCard / QuotaRow / BalanceView / ConfigDialog
 │   ├── stores/services.ts     服务数据响应式状态
 │   ├── api.ts                 Tauri IPC 封装 (invoke + listen)
 │   ├── types.ts               与 Rust 对齐的 TS 类型
@@ -50,8 +57,9 @@ listen('services-updated')     · 60s 定时刷新 (tokio)
 │   │   ├── fetcher/           deepseek / glm / minimax 抓取器
 │   │   ├── merge.rs           三家结果合并进 BalanceData
 │   │   ├── commands.rs        暴露给前端的 #[tauri::command]
-│   │   ├── state.rs           共享状态 + 后台拉取调度
-│   │   └── lib.rs             入口：建窗口 + 定时 + 引导
+│   │   ├── state.rs           共享状态 + 后台拉取调度（防重入 RAII guard）
+│   │   ├── backdrop.rs        原生毛玻璃（mac vibrancy / Win acrylic）
+│   │   └── lib.rs             入口：托盘 + 窗口定位 + 定时 + 关闭拦截
 │   ├── tauri.conf.json        窗口/包名/打包配置
 │   └── resources/balance.json 首次运行模板
 ├── legacy/                    旧版 Python/PySide6 实现（行为参考，已归档）
@@ -77,16 +85,18 @@ pnpm tauri dev
 
 首次会编译大量 Rust crate（数分钟），后续增量很快。
 
+> 开发模式下启动后**窗口默认隐藏**，点击菜单栏/托盘图标 → 「打开主界面」唤起（与生产环境行为一致）。
+
 ### 类型检查
 
 ```bash
-pnpm check          # 前端 svelte-check
-cd src-tauri && cargo check   # 后端类型检查
+pnpm check                              # 前端 svelte-check
+cargo check --manifest-path src-tauri/Cargo.toml   # 后端类型检查
 ```
 
 ## 配置 API Key
 
-首次运行会自动弹出「API Key 配置」对话框（也可随时点标题栏 ⚙ 按钮重开）。密钥存放在跨平台用户配置目录：
+首次唤起主界面时若未配置 key 会自动弹出对话框；之后随时通过**托盘菜单「设置…」**或**右键菜单「配置 API Key」**重开。密钥存放在跨平台用户配置目录：
 
 | 平台 | 路径 |
 |------|------|
