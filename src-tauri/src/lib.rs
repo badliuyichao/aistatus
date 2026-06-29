@@ -219,11 +219,15 @@ fn show_main_window(app: &tauri::AppHandle) {
     }
 }
 
-/// 把窗口移到主屏工作区右下角（排除 Dock/任务栏）。
+/// 把窗口移到**主显示器**工作区右下角（排除 Dock/任务栏）。
 /// 对应 legacy `_anchor_to_bottom_right`。Windows 及其他平台用。
+///
+/// 用 primary_monitor() 而非 current_monitor()：新创建的窗口 current_monitor
+/// 可能落在副屏（甚至休眠/关闭的副屏），导致悬浮框锚到用户看不见的地方。
+/// 强制锚定主屏，保证一定能看到。
 #[cfg(not(target_os = "macos"))]
 fn anchor_to_bottom_right(window: &tauri::WebviewWindow) {
-    let monitor = match window.current_monitor() {
+    let monitor = match window.primary_monitor() {
         Ok(Some(m)) => m,
         _ => return,
     };

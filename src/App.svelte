@@ -6,6 +6,7 @@
   import { onMount, onDestroy } from "svelte";
   import ServiceCard from "./components/ServiceCard.svelte";
   import ConfigDialog from "./components/ConfigDialog.svelte";
+  import TitleBar from "./components/TitleBar.svelte";
   import { services } from "./stores/services.svelte";
   import { needsKeySetup, openBalanceFile } from "./api";
   import { listen } from "@tauri-apps/api/event";
@@ -106,7 +107,7 @@
 
 <div class="app" role="application" oncontextmenu={onContextMenu}>
   <div class="bg-card">
-    <div class="titlebar" class:mac={isMac} data-tauri-drag-region></div>
+    <div class="titlebar" class:mac={isMac}><TitleBar /></div>
     <div class="separator"></div>
 
     <div class="scroll">
@@ -152,12 +153,13 @@
     overflow: hidden;
   }
   .titlebar {
-    /* 仅作为窗口拖拽区 + mac 红绿灯占位，无文字，保持低高度清爽 */
+    /* 标题栏：承载 TitleBar 的拖拽区 + 平台窗口控制按钮。
+       mac 红绿灯由 .titlebar.mac 的 padding-left 让位；Windows 按钮贴右上角。 */
     height: 28px;
     min-height: 28px;
     display: flex;
-    align-items: center;
-    padding: 0 12px;
+    align-items: stretch;
+    padding: 0;
   }
   .titlebar.mac {
     /* macOS 原生红绿灯(Overlay)占据左上角，留出空间避免遮挡下方内容 */
