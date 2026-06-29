@@ -35,6 +35,11 @@ export function openBalanceFile(): Promise<void> {
   return invoke("open_balance_file");
 }
 
+// 窗口高度自适应内容：前端量得内容高度后调用，后端据此 set_size 并重新锚定右下角。
+export function fitToContent(height: number): Promise<void> {
+  return invoke("fit_to_content", { height });
+}
+
 // ── events（Rust → 前端）──
 
 // 订阅后端的 services-updated 事件；返回取消订阅函数。

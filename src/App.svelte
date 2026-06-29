@@ -3,12 +3,12 @@
   // 对应 legacy widget.py 的 MainWidget。
   // macOS 用原生红绿灯（关闭/最小化/全屏），窗口控制不再用自定义按钮；
   // 配置入口移到右键菜单。窗口默认 alwaysOnTop（见 tauri.conf.json）。
-  import { onMount, onDestroy } from "svelte";
+  import { onMount, onDestroy, tick } from "svelte";
   import ServiceCard from "./components/ServiceCard.svelte";
   import ConfigDialog from "./components/ConfigDialog.svelte";
   import TitleBar from "./components/TitleBar.svelte";
   import { services } from "./stores/services.svelte";
-  import { needsKeySetup, openBalanceFile } from "./api";
+  import { needsKeySetup, openBalanceFile, fitToContent } from "./api";
   import { listen } from "@tauri-apps/api/event";
   import { formatTime } from "./types";
 
@@ -22,6 +22,35 @@
   let menuY = $state(0);
   let menuEl: HTMLDivElement | undefined = $state();
   let unlistenOpenConfig: (() => void) | null = null;
+  let bgEl: HTMLDivElement | undefined = $state();
+  let cardsEl: HTMLDivElement | undefined = $state();
+  let resizeObserver: ResizeObserver | undefined;
+
+  // 测量内容「自然高度」并通知后端把窗口高度自适应到卡片数量。
+  // 注意：不能量 .bg-card.scrollHeight——它是 height:100% + .scroll flex:1 撑满，
+  // scrollHeight 会回到窗口高度（=当前 680），形成循环量不出真实内容。
+  // 正确做法：把各部分的「自然高度」相加 = 标题栏 + 分隔线 + 卡片区(.scroll 的
+  // scrollHeight，即 .cards 完整高度) + 页脚；超出后端上限时窗口不再长高、滚动兜底。
+  function measureAndFit() {
+    const root = bgEl;
+    const cards = cardsEl;
+    if (!root || !cards) return;
+    const titlebar = root.querySelector<HTMLElement>(".titlebar");
+    const separator = root.querySelector<HTMLElement>(".separator");
+    const footer = root.querySelector<HTMLElement>(".footer");
+    if (!titlebar || !separator || !footer) return;
+    // 必须用 .cards 的 offsetHeight（自然高度）。不能用 .bg-card / .scroll 的
+    // scrollHeight——它们是 height:100% / flex:1，scrollHeight = max(自身高度, 内容)
+    // ≈ 当前窗口高度，会循环量不出真实内容。
+    const h =
+      titlebar.offsetHeight +
+      separator.offsetHeight +
+      cards.offsetHeight +
+      footer.offsetHeight;
+    if (h > 0) {
+      fitToContent(h).catch((e) => console.error("fit_to_content failed", e));
+    }
+  }
 
   onMount(async () => {
     await services.init();
@@ -37,11 +66,21 @@
     unlistenOpenConfig = await listen("open-config", () => {
       showConfig = true;
     });
+
+    // 窗口高度自适应卡片数量：渲染就绪后量一次，再用 ResizeObserver 跟踪
+    // 增删服务 / 文字换行等后续变化（卡片内容高度变化才触发，不会因窗口自身缩放循环）
+    await tick();
+    measureAndFit();
+    if (cardsEl) {
+      resizeObserver = new ResizeObserver(() => measureAndFit());
+      resizeObserver.observe(cardsEl);
+    }
   });
 
   onDestroy(() => {
     services.destroy();
     unlistenOpenConfig?.();
+    resizeObserver?.disconnect();
   });
 
   // F5 刷新（对应 legacy QShortcut F5）
@@ -106,12 +145,12 @@
 {/if}
 
 <div class="app" role="application" oncontextmenu={onContextMenu}>
-  <div class="bg-card">
+  <div class="bg-card" bind:this={bgEl}>
     <div class="titlebar" class:mac={isMac}><TitleBar /></div>
     <div class="separator"></div>
 
     <div class="scroll">
-      <div class="cards">
+      <div class="cards" bind:this={cardsEl}>
         {#if services.data.services.length === 0}
           <div class="empty">暂无数据<br /><br />请编辑 balance.json 添加服务</div>
         {:else}

@@ -26,8 +26,14 @@ use tauri::{
 use config::load_keys;
 use state::AppState;
 
-/// 窗口距屏幕右下角的留白（对应 legacy WINDOW_SCREEN_MARGIN）。
-const WINDOW_SCREEN_MARGIN: i32 = 20;
+/// 窗口与屏幕边缘的留白（逻辑像素；×显示器缩放换算到物理像素，保证各 DPI 下视觉间距一致）。
+const RIGHT_MARGIN_LOGICAL: f64 = 40.0; // 右侧：避开浏览器滚动条等贴边元素
+const BOTTOM_GAP_LOGICAL: f64 = 12.0; // 底部：任务栏（或屏底）上方的视觉间隙
+
+/// macOS 屏幕边缘留白（物理像素，沿用本改动前的数值）。
+/// Windows 走上面的「逻辑像素×缩放」；mac 维持原值，避免改动 mac 定位。
+#[cfg(target_os = "macos")]
+const MAC_EDGE_MARGIN: i32 = 20;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -52,6 +58,7 @@ pub fn run() {
             commands::refresh_now,
             commands::needs_key_setup,
             commands::open_balance_file,
+            fit_to_content,
         ])
         .setup(|app| {
             // macOS：设为 Accessory（后台应用），不显示在 Dock 栏。
@@ -240,14 +247,61 @@ fn anchor_to_bottom_right(window: &tauri::WebviewWindow) {
 
     // 工作区右下角 = 屏幕原点 + 屏幕尺寸 - 留白；
     // 屏幕原点可能是负数（多屏），所以要加 mon_pos。
-    let x = mon_pos.x as i32 + mon_size.width as i32 - win_size.width as i32 - WINDOW_SCREEN_MARGIN;
+    let scale = monitor.scale_factor();
+    let right_margin = (RIGHT_MARGIN_LOGICAL * scale) as i32;
+    // 底部：Windows 任务栏约 48 逻辑像素（×缩放）+ 上方间隙；mac/Linux 只留间隙。
+    // 不能写死成物理像素常量——150% 缩放下任务栏是 72 物理像素而非 48。
+    let taskbar_reserve = if cfg!(target_os = "windows") {
+        (48.0 * scale) as i32
+    } else {
+        0
+    };
+    let bottom_gap = (BOTTOM_GAP_LOGICAL * scale) as i32;
+    let x = mon_pos.x as i32 + mon_size.width as i32 - win_size.width as i32 - right_margin;
     let y = mon_pos.y as i32 + mon_size.height as i32
         - win_size.height as i32
-        - WINDOW_SCREEN_MARGIN;
+        - taskbar_reserve
+        - bottom_gap;
     // 钳制不滑出左上角
     let x = x.max(mon_pos.x as i32);
     let y = y.max(mon_pos.y as i32);
     let _ = window.set_position(PhysicalPosition { x, y });
+}
+
+/// 窗口高度随卡片数量自适应：前端测得内容高度后调用。
+///
+/// 流程：钳制高度 ∈ [200, 主屏高 - 2×留白] → set_size（宽度不变，只改高度）
+///      → 重新锚定右下角。set_size 默认左上角不动、向下生长，故尺寸变化后必须
+///      重新定位，否则会顶到/超出任务栏。超过上限时窗口不再长高，由前端 .scroll
+///      的 overflow-y:auto 滚动兜底。
+///
+/// 用 primary_monitor 取主屏（与启动锚定一致），后端调窗口不受 capability 限制。
+#[tauri::command]
+fn fit_to_content(height: f64, window: tauri::WebviewWindow) -> Result<(), String> {
+    let monitor = window
+        .primary_monitor()
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "no primary monitor".to_string())?;
+    let scale = monitor.scale_factor();
+    // 上限：屏高（逻辑）- 任务栏 - 底部间隙 - 顶部留白，避免窗口高过可用区域
+    let taskbar_h = if cfg!(target_os = "windows") { 48.0 } else { 0.0 };
+    let max_h = monitor.size().height as f64 / scale - taskbar_h - BOTTOM_GAP_LOGICAL - 16.0;
+    let h = height.clamp(200.0, max_h.max(200.0));
+    // 宽度保持当前值（悬浮框只自适应高度，宽度固定 340）
+    let w = window
+        .outer_size()
+        .map(|s| s.width as f64 / scale)
+        .unwrap_or(340.0);
+    window
+        .set_size(tauri::Size::Logical(tauri::LogicalSize::new(w, h)))
+        .map_err(|e| e.to_string())?;
+
+    // 尺寸变化后重新锚定右下角（Windows/Linux）。
+    // mac 不重锚：其窗口顶部锚定在菜单栏/托盘下方，set_size 默认保持左上角、向下生长即可；
+    // 重锚到 top_right 会把已跟随托盘的窗口拉回右上角造成跳动。故 mac 仅自适应高度。
+    #[cfg(not(target_os = "macos"))]
+    anchor_to_bottom_right(&window);
+    Ok(())
 }
 
 /// macOS 启动默认位置：主屏右上角、菜单栏正下方。
@@ -267,7 +321,7 @@ fn anchor_top_right(window: &tauri::WebviewWindow) {
 
     // 右上角：x = 屏幕右边 - 窗口宽 - 留白；
     // y = 菜单栏高度（约 25px）+ 小留白，紧贴菜单栏下方。
-    let x = mon_pos.x as i32 + mon_size.width as i32 - win_size.width as i32 - WINDOW_SCREEN_MARGIN;
+    let x = mon_pos.x as i32 + mon_size.width as i32 - win_size.width as i32 - MAC_EDGE_MARGIN;
     let menu_bar_h: i32 = 25; // macOS 菜单栏固定高度
     let y = mon_pos.y as i32 + menu_bar_h + 4;
     let _ = window.set_position(PhysicalPosition { x, y });
@@ -307,8 +361,8 @@ fn anchor_near_tray(window: &tauri::WebviewWindow, icon_rect: &Rect) {
     let y = icon_y + icon_h + 4;
 
     // 水平钳制：不滑出屏幕左右边界
-    let min_x = mon_pos.x as i32 + WINDOW_SCREEN_MARGIN;
-    let max_x = mon_pos.x as i32 + mon_size.width as i32 - win_size.width as i32 - WINDOW_SCREEN_MARGIN;
+    let min_x = mon_pos.x as i32 + MAC_EDGE_MARGIN;
+    let max_x = mon_pos.x as i32 + mon_size.width as i32 - win_size.width as i32 - MAC_EDGE_MARGIN;
     x = x.clamp(min_x, max_x.max(min_x));
 
     let _ = window.set_position(PhysicalPosition { x, y });
