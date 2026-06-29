@@ -59,11 +59,9 @@
     height: 100%;
     width: var(--pct);
     border-radius: 4px;
-    background: linear-gradient(
-      90deg,
-      color-mix(in srgb, var(--color) 86%, transparent),
-      color-mix(in srgb, var(--color) 70%, transparent)
-    );
+    /* 直接用品牌色（旧实现用 color-mix 做半透明渐变，但 color-mix 需 Safari 16.4+，
+       macOS 12 / 老 WebView2 不支持，会导致进度条填充透明不可见）。纯色全平台兼容。 */
+    background: var(--color);
     transition: width 0.3s ease;
   }
   .detail {
