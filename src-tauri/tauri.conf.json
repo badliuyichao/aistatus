@@ -2,11 +2,11 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "AI余额监控",
   "version": "0.1.0",
-  "identifier": "com.aistatus.app",
+  "identifier": "com.aistatus.desktop",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://127.0.0.1:1420",
-    "beforeBuildCommand": "pnpm build",
+    "beforeBuildCommand": "pnpm sync-version && pnpm build",
     "frontendDist": "../dist"
   },
   "app": {

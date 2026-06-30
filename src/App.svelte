@@ -162,7 +162,10 @@
     </div>
 
     <div class="footer">
-      {#if services.refreshing}刷新中…{:else}⏱ 更新于 {formatTime(services.data.timestamp)}{/if}
+      <div class="footer-status">
+        {#if services.refreshing}刷新中…{:else}⏱ 更新于 {formatTime(services.data.timestamp)}{/if}
+      </div>
+      <div class="footer-version">v{__APP_VERSION__} · {__BUILD_TIME__} · {__GIT_HASH__}</div>
     </div>
   </div>
 </div>
@@ -238,6 +241,11 @@
     font-size: 10px;
     text-align: center;
     padding: 6px 14px;
+  }
+  .footer-version {
+    margin-top: 2px;
+    opacity: 0.7;
+    font-size: 9px;
   }
   .menu-backdrop {
     position: fixed;

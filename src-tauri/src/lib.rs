@@ -20,8 +20,11 @@ use std::time::Duration;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    Emitter, Manager, PhysicalPosition, Rect,
+    Emitter, Manager, PhysicalPosition,
 };
+// Rect 仅 macOS 的 anchor_near_tray 使用；按平台限定 import，避免 Windows 编译告警 unused。
+#[cfg(target_os = "macos")]
+use tauri::Rect;
 
 use config::load_keys;
 use state::AppState;
@@ -88,6 +91,8 @@ pub fn run() {
                 }
 
                 let win = window.clone();
+                // handle 仅 macOS 分支（tray_by_id）使用；按平台限定避免 Windows 编译告警 unused。
+                #[cfg(target_os = "macos")]
                 let handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
                     // 让出当前事件循环，等窗口 + 托盘图标完成初始化。
