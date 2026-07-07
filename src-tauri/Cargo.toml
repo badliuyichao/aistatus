@@ -38,6 +38,12 @@ notify-debouncer-mini = { version = "0.4", default-features = false }
 # 平台原生毛玻璃（Win acrylic/mica + mac vibrancy），失败降级 CSS
 window-vibrancy = "0.5"
 
+# Win11 系统原生圆角（DWMWA_WINDOW_CORNER_PREFERENCE）；仅 Windows 编译时拉入，
+# 版本与 window-vibrancy 0.5.3 的依赖对齐（复用已编译产物，不引入新版本）
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Graphics_Dwm", "Win32_Foundation"] }
+raw-window-handle = "0.6"
+
 [profile.dev]
 incremental = true
 

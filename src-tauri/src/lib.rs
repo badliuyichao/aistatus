@@ -90,6 +90,12 @@ pub fn run() {
                     let _ = window.set_decorations(false);
                 }
 
+                // Win11：让 DWM 对无边框窗口画系统原生圆角（与自带应用一致）。
+                // 放在 set_decorations(false) 之后，对最终的无边框窗口设属性；
+                // Win10 该属性不存在，调用内部静默忽略，保持直角 = Win10 原生。
+                #[cfg(target_os = "windows")]
+                backdrop::apply_rounded_corners(&window);
+
                 let win = window.clone();
                 // handle 仅 macOS 分支（tray_by_id）使用；按平台限定避免 Windows 编译告警 unused。
                 #[cfg(target_os = "macos")]

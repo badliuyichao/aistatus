@@ -25,6 +25,7 @@ dependencies = [
  "futures",
  "notify",
  "notify-debouncer-mini",
+ "raw-window-handle",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -33,6 +34,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tokio",
  "window-vibrancy 0.5.3",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

@@ -17,6 +17,38 @@ pub fn apply(window: &tauri::WebviewWindow) -> bool {
     apply_platform(window)
 }
 
+/// 对窗口应用系统原生圆角（仅 Win11 22000+）。
+///
+/// 无边框窗口 DWM 默认画直角；显式 `DWMWCP_ROUND` 让系统画圆角（半径 ~8 逻辑像素，
+/// DPI 自适应），与 Win11 自带应用一致——mica/acrylic 毛玻璃随之圆角，无锯齿。
+/// Win10 该属性不存在，调用失败静默忽略（窗口保持直角，符合 Win10 原生）。
+///
+/// 这是让「无边框透明窗口 + 原生毛玻璃」获得真圆角的唯一干净方式：CSS border-radius
+/// 只裁 CSS 层，毛玻璃是 DWM 合成层、会从 CSS 圆角缝隙外露直角。
+#[cfg(target_os = "windows")]
+pub fn apply_rounded_corners(window: &tauri::WebviewWindow) {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use windows_sys::Win32::Graphics::Dwm::{
+        DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWM_WINDOW_CORNER_PREFERENCE,
+        DWMWCP_ROUND,
+    };
+
+    let Ok(handle) = window.window_handle() else { return; };
+    let RawWindowHandle::Win32(win32) = handle.as_raw() else { return; };
+    // HWND = *mut c_void；raw-window-handle 给 NonZeroIsize，.get() → isize → 指针
+    let hwnd = win32.hwnd.get() as *mut core::ffi::c_void;
+
+    let pref: DWM_WINDOW_CORNER_PREFERENCE = DWMWCP_ROUND;
+    unsafe {
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_WINDOW_CORNER_PREFERENCE as u32,
+            &pref as *const _ as *const core::ffi::c_void,
+            std::mem::size_of::<DWM_WINDOW_CORNER_PREFERENCE>() as u32,
+        );
+    }
+}
+
 #[cfg(target_os = "macos")]
 fn apply_platform(window: &tauri::WebviewWindow) -> bool {
     match apply_vibrancy(
