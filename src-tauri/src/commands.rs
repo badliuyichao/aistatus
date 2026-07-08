@@ -76,6 +76,21 @@ pub fn open_balance_file() -> Result<(), String> {
     tauri_plugin_opener::open_path(&path, None::<&str>).map_err(|e| e.to_string())
 }
 
+/// 读主题偏好（system / dark / light）。前端启动时据此初始化 <html data-theme>。
+#[tauri::command]
+pub fn get_theme() -> String {
+    config::load_theme()
+}
+
+/// 保存主题偏好。前端已即时应用，这里只持久化到 config.json。
+#[tauri::command]
+pub fn save_theme(theme: String) -> Result<(), String> {
+    if !matches!(theme.as_str(), "system" | "dark" | "light") {
+        return Err(format!("invalid theme: {theme}"));
+    }
+    config::save_theme(&theme).map_err(|e| e.to_string())
+}
+
 /// 给后台拉取线程用的内部广播：拉取完成后向所有窗口发 `services-updated`。
 #[allow(dead_code)]
 pub fn emit_services_updated(app: &AppHandle, data: &BalanceData) {

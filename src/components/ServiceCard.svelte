@@ -55,8 +55,8 @@
 
 <style>
   .card {
-    background: rgba(255, 255, 255, 0.96);
-    border: 1px solid rgba(0, 0, 0, 0.08);
+    background: var(--svc-card-bg);
+    border: 1px solid var(--svc-card-border);
     border-radius: 10px;
     padding: 12px 14px;
   }
@@ -98,7 +98,7 @@
     gap: 8px;
   }
   .loading-row {
-    color: #9aa1ad;
+    color: var(--text-muted);
     font-size: 12px;
     padding: 4px 0;
   }

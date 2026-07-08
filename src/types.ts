@@ -11,6 +11,10 @@ export interface QuotaItem {
 
 export type ServiceType = "quota" | "balance";
 
+// 主题偏好，对应后端 config.json 的 theme 字段。
+// system 由前端用 matchMedia 解析成 dark/light。
+export type Theme = "system" | "dark" | "light";
+
 export interface ServiceInfo {
   name: string;
   type: ServiceType;

@@ -36,18 +36,18 @@
     gap: 6px;
   }
   .name {
-    color: #2d3340;
+    color: var(--text-primary);
     font-size: 12px;
   }
   .value {
-    color: #586070;
+    color: var(--text-secondary);
     font-size: 11px;
   }
   .bar {
     height: 8px;
     margin-top: 4px;
     border-radius: 4px;
-    background: rgba(0, 0, 0, 0.06);
+    background: var(--bar-track);
     position: relative;
     overflow: hidden;
   }
@@ -65,7 +65,7 @@
     transition: width 0.3s ease;
   }
   .detail {
-    color: #8a92a0;
+    color: var(--text-muted);
     font-size: 10px;
     margin-top: 4px;
   }

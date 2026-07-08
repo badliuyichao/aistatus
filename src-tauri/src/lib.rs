@@ -61,6 +61,8 @@ pub fn run() {
             commands::refresh_now,
             commands::needs_key_setup,
             commands::open_balance_file,
+            commands::get_theme,
+            commands::save_theme,
             fit_to_content,
         ])
         .setup(|app| {

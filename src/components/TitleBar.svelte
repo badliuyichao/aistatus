@@ -109,12 +109,12 @@
     -webkit-app-region: no-drag;
   }
   .cap:hover {
-    background: rgba(0, 0, 0, 0.07);
+    background: var(--caption-hover);
   }
   .cap:active {
-    background: rgba(0, 0, 0, 0.11);
+    background: var(--caption-active);
   }
-  /* Windows 关闭键悬停红色（对齐 Win11 caption 习惯） */
+  /* Windows 关闭键悬停红色（对齐 Win11 caption 习惯）*/
   .cap.close:hover {
     background: #c42b1c;
     color: #fff;

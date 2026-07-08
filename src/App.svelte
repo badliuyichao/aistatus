@@ -8,6 +8,7 @@
   import ConfigDialog from "./components/ConfigDialog.svelte";
   import TitleBar from "./components/TitleBar.svelte";
   import { services } from "./stores/services.svelte";
+  import { theme } from "./stores/theme.svelte";
   import { needsKeySetup, openBalanceFile, fitToContent } from "./api";
   import { listen } from "@tauri-apps/api/event";
   import { formatTime } from "./types";
@@ -53,6 +54,9 @@
   }
 
   onMount(async () => {
+    // 主题先于 services 初始化：读偏好 + 应用 <html data-theme>。
+    // 窗口默认隐藏，唤起前完成，无主题闪烁。
+    await theme.init();
     await services.init();
     // 首次无 key → 弹配置框（对应 legacy prompt_for_keys_if_needed）
     try {
@@ -79,6 +83,7 @@
 
   onDestroy(() => {
     services.destroy();
+    theme.destroy();
     unlistenOpenConfig?.();
     resizeObserver?.disconnect();
   });
@@ -209,7 +214,7 @@
   }
   .separator {
     height: 1px;
-    background: rgba(0, 0, 0, 0.08);
+    background: var(--separator);
   }
   .scroll {
     flex: 1;
@@ -220,7 +225,7 @@
     width: 4px;
   }
   .scroll::-webkit-scrollbar-thumb {
-    background: rgba(0, 0, 0, 0.18);
+    background: var(--scroll-thumb);
     border-radius: 2px;
   }
   .cards {
@@ -230,14 +235,14 @@
     padding: 8px 12px;
   }
   .empty {
-    color: #586070;
+    color: var(--text-secondary);
     font-size: 12px;
     text-align: center;
     padding: 40px;
     line-height: 1.6;
   }
   .footer {
-    color: #9aa1ad;
+    color: var(--text-muted);
     font-size: 10px;
     text-align: center;
     padding: 6px 14px;
@@ -255,12 +260,12 @@
   .ctx-menu {
     position: fixed;
     z-index: 60;
-    background: #2a2a3a;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: var(--menu-bg);
+    border: 1px solid var(--menu-border);
     border-radius: 8px;
     padding: 4px;
     font-size: 12px;
-    color: #ddd;
+    color: var(--menu-text);
     min-width: 140px;
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
   }
@@ -271,14 +276,14 @@
     padding: 6px 16px;
     border: none;
     background: transparent;
-    color: #ddd;
+    color: var(--menu-text);
     font-size: 12px;
     border-radius: 4px;
     cursor: pointer;
     font-family: inherit;
   }
   .ctx-menu button:hover {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--menu-hover);
     color: white;
   }
 </style>

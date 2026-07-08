@@ -3,7 +3,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { ApiKeys, BalanceData } from "./types";
+import type { ApiKeys, BalanceData, Theme } from "./types";
 
 // ── commands（前端 → Rust）──
 
@@ -33,6 +33,14 @@ export function needsKeySetup(): Promise<boolean> {
 
 export function openBalanceFile(): Promise<void> {
   return invoke("open_balance_file");
+}
+
+export function getTheme(): Promise<Theme> {
+  return invoke<Theme>("get_theme");
+}
+
+export function setTheme(theme: Theme): Promise<void> {
+  return invoke("set_theme", { theme });
 }
 
 // 窗口高度自适应内容：前端量得内容高度后调用，后端据此 set_size 并重新锚定右下角。

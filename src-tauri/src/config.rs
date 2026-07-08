@@ -103,3 +103,46 @@ pub(crate) fn read_json_or_default<T: for<'de> Deserialize<'de> + Default>(
 pub fn ensure_data_dir() -> std::io::Result<()> {
     fs::create_dir_all(data_dir())
 }
+
+// ── 主题偏好（config.json 的 theme 字段，与 API key 平级）──
+
+/// 读主题偏好；不存在 / 损坏 / 非法值返回 "system"。
+/// 对应前端 Theme = "system" | "dark" | "light"。
+pub fn load_theme() -> String {
+    let value = read_config_value();
+    let t = value
+        .get("theme")
+        .and_then(|v| v.as_str())
+        .unwrap_or("system");
+    if matches!(t, "system" | "dark" | "light") {
+        t.to_string()
+    } else {
+        "system".to_string()
+    }
+}
+
+/// 写主题偏好：读-改-写（保留 API key 等其他字段）+ 原子 tmp+rename。
+pub fn save_theme(theme: &str) -> std::io::Result<()> {
+    let path = config_path();
+    let mut value = read_config_value();
+    if let Some(obj) = value.as_object_mut() {
+        obj.insert("theme".into(), serde_json::json!(theme));
+    }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let tmp = path.with_extension("json.tmp");
+    fs::write(&tmp, serde_json::to_string_pretty(&value)?)?;
+    fs::rename(&tmp, &path)?;
+    Ok(())
+}
+
+/// 读 config.json 为 serde_json::Value；不存在 / 损坏 / 非 object 返回空 object。
+/// 供 theme 的读-改-写用，与 load_keys 的强类型解析互不干扰。
+fn read_config_value() -> serde_json::Value {
+    fs::read_to_string(config_path())
+        .ok()
+        .and_then(|b| serde_json::from_str(&b).ok())
+        .filter(|v: &serde_json::Value| v.is_object())
+        .unwrap_or_else(|| serde_json::json!({}))
+}

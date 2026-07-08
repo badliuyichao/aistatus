@@ -42,7 +42,7 @@
     line-height: 1;
   }
   .amount.na {
-    color: #9aa1ad;
+    color: var(--text-muted);
   }
   .unit {
     color: var(--color);
@@ -50,7 +50,7 @@
     margin-bottom: 4px;
   }
   .detail {
-    color: #8a92a0;
+    color: var(--text-muted);
     font-size: 11px;
     padding-top: 2px;
   }
