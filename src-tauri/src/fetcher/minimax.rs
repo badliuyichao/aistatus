@@ -4,17 +4,17 @@
 //! Auth:   Bearer <api_key>
 //! 返回配额型（type: quota）。
 //!
-//! 展示「剩余可用%」（与 MiniMax 官网一致：未用时显示 100%）。
-//! ⚠️ 本卡 `QuotaItem.used` 存的是**剩余%**（满条=可用），与 GLM 卡的
-//!    used（已用%）方向相反 —— 因为 MiniMax 接口字段
-//!    `current_interval_remaining_percent` 本就是「剩余」，直接展示更直观，
-//!    数字与进度条都与官网对齐。
-//! 聚合规则：
-//!   - status == 1 且有 remaining_percent → 活跃，纳入聚合
-//!     （status 2/3 是「未计费 / 不限」哨兵，remaining 不可平均，需排除）
-//!   - 剩余% = 对活跃 model 求平均 remaining_percent
-//!   - 重置时间取最早（min remains_time，含 inactive model）
-//!   - 无活跃 model → 100%（满额可用），5h 标「本周期可用」，周限额标「无限额」
+//! 展示规则（对齐 MiniMax 官网）：
+//!   - 活跃窗口（有 status==1 的 model）：显示**已用%** = 100 - 平均 remaining_percent，
+//!     进度条按已用填充（满条=用尽）。官网此时也显示已用百分比（用了 2% 显示 2%）。
+//!   - 无活跃 model（status 全 2/3，窗口未计费/不限）：显示 100% 满额可用占位
+//!     （官网此时显示 100%），5h 标「本周期可用」，周限额标「无限额」。
+//!   - status 2/3 是「未计费 / 不限」哨兵，remaining 不可平均，需排除。
+//!   - 重置时间取最早（min remains_time，含 inactive model）。
+//!
+//! ⚠️ inactive 的 100% 是「满额可用」占位（不是「100% 已用」），与活跃分支的
+//!    已用% 语义不同——这与官网 inactive 显示 100%、active 显示已用% 一致；
+//!    也避免 inactive 退回空条被误读为「额度用完」。
 
 use reqwest::header::{ACCEPT, AUTHORIZATION};
 
@@ -167,8 +167,12 @@ pub async fn fetch(api_key: &str) -> Option<MinimaxResult> {
     })
 }
 
-/// 聚合一个窗口 → 展示「剩余可用%」（满条=可用，对齐 MiniMax 官网）。
-/// 对应 Python `_aggregate_window`（但翻转成剩余% 语义）。
+/// 聚合一个窗口 → 展示对齐 MiniMax 官网的百分比。
+///
+/// - 活跃窗口（有 status==1 的 model）：显示**已用%** = 100 - 平均 remaining_percent，
+///   进度条按已用填充（满条=用尽）。官网此时也显示已用百分比（用了 2% 显示 2%）。
+/// - 无活跃 model（status 全 2/3，窗口未计费/不限）：显示 100% 满额可用占位
+///   （官网此时显示 100%）。这是「可用」语义，不是「100% 已用」。
 ///
 /// `show_inactive_reset`：无活跃 model 时是否在 detail 后附重置倒计时。
 /// 5h「本周期可用」需要（窗口会刷新），weekly「无限额」不需要（谈不上重置）。
@@ -186,15 +190,17 @@ fn aggregate_window(
         .filter(|m| window.status(m) == Some(1) && window.remaining_pct(m).is_some())
         .collect();
 
-    // 剩余%：活跃 model 取平均 remaining_percent；无活跃 → 100（满额可用）
-    let remaining_pct = if active.is_empty() {
+    // 已用%：活跃 model = 100 - 平均 remaining_percent；无活跃 → 100（满额可用占位，
+    // 对齐官网 inactive 显示 100%，且避免空条被误读为「额度用完」）
+    let used_pct = if active.is_empty() {
         100.0
     } else {
-        let pcts: Vec<f64> = active
+        let remaining: Vec<f64> = active
             .iter()
             .map(|m| window.remaining_pct(m).unwrap_or(100.0))
             .collect();
-        pcts.iter().sum::<f64>() / pcts.len() as f64
+        let mean_remaining = remaining.iter().sum::<f64>() / remaining.len() as f64;
+        100.0 - mean_remaining
     };
 
     // 重置时间：取所有 model 中最早的 remains_time（对 inactive 也有意义）
@@ -239,7 +245,7 @@ fn aggregate_window(
 
     QuotaItem {
         label: label.into(),
-        used: (remaining_pct * 10.0).round() / 10.0, // round(remaining_pct, 1)
+        used: (used_pct * 10.0).round() / 10.0, // round(used_pct, 1)
         total: 100.0,
         unit: "%".into(),
         detail,
