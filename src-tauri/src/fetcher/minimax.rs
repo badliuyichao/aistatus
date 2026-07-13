@@ -4,12 +4,17 @@
 //! Auth:   Bearer <api_key>
 //! 返回配额型（type: quota）。
 //!
-//! 核心是 `_aggregate_window` 聚合逻辑：跨所有活跃 model 求平均 used%。
+//! 展示「剩余可用%」（与 MiniMax 官网一致：未用时显示 100%）。
+//! ⚠️ 本卡 `QuotaItem.used` 存的是**剩余%**（满条=可用），与 GLM 卡的
+//!    used（已用%）方向相反 —— 因为 MiniMax 接口字段
+//!    `current_interval_remaining_percent` 本就是「剩余」，直接展示更直观，
+//!    数字与进度条都与官网对齐。
+//! 聚合规则：
 //!   - status == 1 且有 remaining_percent → 活跃，纳入聚合
-//!   - used% = 100 - remaining%（对活跃 model 求平均）
-//!   - 重置时间取最早（min remains_time）
-//!   - 无活跃 model → 「inactive」条（5h 用默认「本周期未开始或无用量」，
-//!     周限额用「无限额」满条）
+//!     （status 2/3 是「未计费 / 不限」哨兵，remaining 不可平均，需排除）
+//!   - 剩余% = 对活跃 model 求平均 remaining_percent
+//!   - 重置时间取最早（min remains_time，含 inactive model）
+//!   - 无活跃 model → 100%（满额可用），5h 标「本周期可用」，周限额标「无限额」
 
 use reqwest::header::{ACCEPT, AUTHORIZATION};
 
@@ -149,21 +154,9 @@ pub async fn fetch(api_key: &str) -> Option<MinimaxResult> {
 
     let models = remains;
 
-    // 两个窗口聚合
-    let interval = aggregate_window(
-        models,
-        Window::Interval,
-        "5小时限额",
-        0.0,
-        "本周期未开始或无用量",
-    );
-    let weekly = aggregate_window(
-        models,
-        Window::Weekly,
-        "周限额",
-        100.0, // 周窗口无活跃 → 「无限额」满条
-        "无限额",
-    );
+    // 两个窗口聚合（均展示「剩余可用%」，无活跃 model → 100% 满额可用）
+    let interval = aggregate_window(models, Window::Interval, "5小时限额", "本周期可用", true);
+    let weekly = aggregate_window(models, Window::Weekly, "周限额", "无限额", false);
 
     Some(MinimaxResult {
         name: "MiniMax".into(),
@@ -174,41 +167,39 @@ pub async fn fetch(api_key: &str) -> Option<MinimaxResult> {
     })
 }
 
-/// 聚合一个窗口：跨所有活跃 model 求平均 used%。
-/// 对应 Python `_aggregate_window`。
+/// 聚合一个窗口 → 展示「剩余可用%」（满条=可用，对齐 MiniMax 官网）。
+/// 对应 Python `_aggregate_window`（但翻转成剩余% 语义）。
+///
+/// `show_inactive_reset`：无活跃 model 时是否在 detail 后附重置倒计时。
+/// 5h「本周期可用」需要（窗口会刷新），weekly「无限额」不需要（谈不上重置）。
 fn aggregate_window(
     models: &[ModelRemain],
     window: Window,
     label: &str,
-    inactive_used: f64,
     inactive_detail: &str,
+    show_inactive_reset: bool,
 ) -> QuotaItem {
-    // 活跃 = status==1 且 remaining_percent 是数字
+    // 活跃 = status==1 且 remaining_percent 是数字（status 2/3 为「未计费/不限」
+    // 哨兵，remaining 值不可直接平均，需排除）
     let active: Vec<&ModelRemain> = models
         .iter()
         .filter(|m| window.status(m) == Some(1) && window.remaining_pct(m).is_some())
         .collect();
 
-    if active.is_empty() {
-        return QuotaItem {
-            label: label.into(),
-            used: inactive_used,
-            total: 100.0,
-            unit: "%".into(),
-            detail: inactive_detail.into(),
-        };
-    }
+    // 剩余%：活跃 model 取平均 remaining_percent；无活跃 → 100（满额可用）
+    let remaining_pct = if active.is_empty() {
+        100.0
+    } else {
+        let pcts: Vec<f64> = active
+            .iter()
+            .map(|m| window.remaining_pct(m).unwrap_or(100.0))
+            .collect();
+        pcts.iter().sum::<f64>() / pcts.len() as f64
+    };
 
-    // 平均 used% = mean(100 - remaining%)
-    let used_pcts: Vec<f64> = active
-        .iter()
-        .map(|m| 100.0 - window.remaining_pct(m).unwrap_or(100.0))
-        .collect();
-    let used_pct = used_pcts.iter().sum::<f64>() / used_pcts.len() as f64;
-
-    // 重置时间取最早（min remains_time）
+    // 重置时间：取所有 model 中最早的 remains_time（对 inactive 也有意义）
     let reset_dur = {
-        let rems: Vec<f64> = active
+        let rems: Vec<f64> = models
             .iter()
             .filter_map(|m| window.remains_time(m))
             .collect();
@@ -219,7 +210,7 @@ fn aggregate_window(
         }
     };
 
-    // model 名提示（去 general）
+    // model 名提示（去 general；仅活跃 model）
     let mut model_names: Vec<String> = active
         .iter()
         .filter_map(|m| m.model_name.clone())
@@ -233,7 +224,14 @@ fn aggregate_window(
         format!(" ({})", model_names.join(", "))
     };
 
-    let detail = if reset_dur.is_empty() {
+    let detail = if active.is_empty() {
+        // 无活跃 model：满额可用。按需附重置倒计时。
+        if show_inactive_reset && !reset_dur.is_empty() {
+            format!("{inactive_detail} · {reset_dur}后重置")
+        } else {
+            inactive_detail.into()
+        }
+    } else if reset_dur.is_empty() {
         String::new()
     } else {
         format!("{reset_dur}后重置{model_hint}")
@@ -241,7 +239,7 @@ fn aggregate_window(
 
     QuotaItem {
         label: label.into(),
-        used: (used_pct * 10.0).round() / 10.0, // round(used_pct, 1)
+        used: (remaining_pct * 10.0).round() / 10.0, // round(remaining_pct, 1)
         total: 100.0,
         unit: "%".into(),
         detail,
