@@ -1,5 +1,5 @@
 // 服务数据全局状态。
-// 对应 legacy widget.py 里 MainWidget 维护的当前 BalanceData + 刷新触发。
+// 维护当前 BalanceData 快照并触发刷新。
 //
 // Svelte 5 rune：用 $state 暴露响应式数据，组件 import 后直接用。
 

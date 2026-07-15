@@ -1,6 +1,5 @@
 <script lang="ts">
   // 余额展示：大号金额 + 货币符号 + 单位 + 详情。
-  // 对应 legacy widget.py 的 _apply_balance / _refill_balance。
   import type { ServiceInfo } from "../types";
 
   let { service }: { service: ServiceInfo } = $props();

@@ -1,6 +1,5 @@
 <script lang="ts">
   // 配额行：标签 + 已用/总量 + 进度条 + 详情。
-  // 对应 legacy widget.py 的 quota row（_make_quota_row）+ QuotaProgressBar。
   import type { QuotaItem } from "../types";
   import { percentage } from "../types";
 
@@ -8,7 +7,7 @@
 
   let pct = $derived(percentage(item));
 
-  // used/total 显示：整数不带小数，浮点保留一位（对应 legacy 的判断逻辑）
+  // used/total 显示：整数不带小数，浮点保留一位。
   function fmtNum(n: number): string {
     return Number.isInteger(n) ? String(n) : n.toFixed(1);
   }

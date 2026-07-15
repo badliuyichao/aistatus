@@ -1,5 +1,5 @@
 <script lang="ts">
-  // 设置对话框：主题选择 + API Key 配置。对应 legacy widget.py 的 ConfigDialog。
+  // 设置对话框：主题选择 + API Key 配置。
   // 主题：即时生效（点选即应用 + 保存），不等 Key 的"保存并刷新"。
   // Key：保存并刷新（保存后后端立即重新拉取）。
   import { onMount } from "svelte";

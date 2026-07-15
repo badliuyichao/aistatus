@@ -1,15 +1,11 @@
 //! config.json 读写 —— 存放三家 API 密钥。
 //!
-//! 对应 legacy Python 各 fetcher 的 `load_config()` / `save_config()`，
-//! 以及 `paths.py` 的 `data_dir()`（frozen 分支）。
-//!
 //! 路径：跨平台用户配置目录下的 `aistatus/config.json`
 //!   - macOS: ~/Library/Application Support/aistatus/config.json
 //!   - Windows: %APPDATA%\aistatus\config.json
 //!   - Linux: ~/.config/aistatus/config.json（预留）
 //!
-//! 这与 legacy `%APPDATA%\aistatus` 的 Windows 路径语义一致；
-//! `dirs::config_dir()` 在各平台返回的就是这套约定目录。
+//! `dirs::config_dir()` 负责按平台返回符合系统约定的配置目录。
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -17,7 +13,6 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 /// 三家 API 密钥。任一为空字符串表示「未配置该厂商」。
-/// 对应 Python config.json 的三个字段。
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiKeys {
@@ -32,7 +27,7 @@ pub struct ApiKeys {
 }
 
 impl ApiKeys {
-    /// 是否三家都未配置（首次运行判断用，对应 Python `prompt_for_keys_if_needed`）。
+    /// 是否三家都未配置（首次运行判断用）。
     pub fn all_empty(&self) -> bool {
         self.deepseek_api_key.is_empty()
             && self.glm_api_key.is_empty()
@@ -51,7 +46,6 @@ impl ApiKeys {
 }
 
 /// 用户数据根目录：`<config_dir>/aistatus/`。
-/// 对应 Python `data_dir()`（frozen 分支）。
 pub fn data_dir() -> PathBuf {
     let base = dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."));
@@ -63,19 +57,17 @@ pub fn config_path() -> PathBuf {
     data_dir().join("config.json")
 }
 
-/// balance.json 完整路径（首次运行从 resource 模板拷出）。
+/// balance.json 完整路径（首次运行从内嵌模板创建）。
 pub fn balance_path() -> PathBuf {
     data_dir().join("balance.json")
 }
 
-/// 读取 config.json；文件不存在或解析失败返回空的 ApiKeys（不报错，
-/// 对应 Python `load_config` 的 try/except 兜底）。
+/// 读取 config.json；文件不存在或解析失败时返回空的 ApiKeys。
 pub fn load_keys() -> ApiKeys {
     read_json_or_default::<ApiKeys>(&config_path())
 }
 
 /// 写入 config.json。自动创建父目录。
-/// 对应 Python `save_config`。
 pub fn save_keys(keys: &ApiKeys) -> std::io::Result<()> {
     let path = config_path();
     if let Some(parent) = path.parent() {

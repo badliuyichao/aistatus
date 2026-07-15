@@ -1,4 +1,4 @@
-//! 数据模型 —— 对齐 legacy Python `data_manager.py` 的三个 dataclass。
+//! 数据模型 —— 定义配置文件、运行时快照与前端事件的共享结构。
 //!
 //! 这些结构同时承担两个方向的序列化：
 //!   1. 反序列化 `balance.json`（用户编辑的模板文件，字段最简）
@@ -10,7 +10,6 @@
 use serde::{Deserialize, Serialize};
 
 /// 一个配额项（已用/总量），如「5小时限额」。
-/// 对应 Python `QuotaItem`。
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QuotaItem {
@@ -20,7 +19,7 @@ pub struct QuotaItem {
     #[serde(default)]
     pub used: f64,
 
-    /// 总量。Python 默认 1.0（避免 percentage 除零）；这里也用 1.0。
+    /// 总量。默认 1.0，避免计算百分比时除零。
     #[serde(default = "default_total")]
     pub total: f64,
 
@@ -37,7 +36,7 @@ fn default_total() -> f64 {
 }
 
 impl QuotaItem {
-    /// 已用百分比，0-100。total<=0 时返回 0（对齐 Python `percentage`）。
+    /// 已用百分比，0-100。total<=0 时返回 0。
     pub fn percentage(&self) -> f64 {
         if self.total <= 0.0 {
             0.0
@@ -46,7 +45,7 @@ impl QuotaItem {
         }
     }
 
-    /// 剩余量，不小于 0（对齐 Python `remaining`）。
+    /// 剩余量，不小于 0。
     #[allow(dead_code)]
     pub fn remaining(&self) -> f64 {
         (self.total - self.used).max(0.0)
@@ -54,7 +53,6 @@ impl QuotaItem {
 }
 
 /// 一个服务商条目（GLM / DeepSeek / MiniMax）。
-/// 对应 Python `ServiceInfo`。
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ServiceInfo {
@@ -107,7 +105,6 @@ fn default_unit() -> String {
 }
 
 /// 完整的余额数据（balance.json 顶层结构）。
-/// 对应 Python `BalanceData`。
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BalanceData {
@@ -127,7 +124,7 @@ fn default_title() -> String {
 }
 
 impl BalanceData {
-    /// 当前时间戳，若未设置则用系统当前时间（对应 Python `load()` 里 `time.time()`）。
+    /// 当前 Unix 时间戳（秒）。
     pub fn now_timestamp() -> f64 {
         use std::time::{SystemTime, UNIX_EPOCH};
         SystemTime::now()
@@ -138,10 +135,9 @@ impl BalanceData {
 }
 
 // ── fetcher 返回的原始 API 数据（merge 前的中间结构）──
-// 对应 Python 各 fetcher 返回的 dict。三家结构不同，但都用 serde 反序列化
-// 官方响应后，在各自 fetcher 模块里转成 ServiceInfo/QuotaItem。
+// 三家响应结构不同；各 fetcher 解析后统一转换为这些结构。
 
-/// DeepSeek fetcher 返回的展示数据（对应 Python deepseek_fetcher 返回的 dict）。
+/// DeepSeek fetcher 返回的展示数据。
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeepSeekResult {
@@ -183,7 +179,6 @@ pub struct MinimaxResult {
 }
 
 /// 三家拉取结果（任一为 None 表示无 key / 失败 / 无数据）。
-/// 对应 Python FetchWorker.fetched 信号的三参数。
 #[derive(Clone, Debug, Default)]
 pub struct FetchOutcome {
     pub deepseek: Option<DeepSeekResult>,

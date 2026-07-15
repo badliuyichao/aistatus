@@ -1,5 +1,5 @@
 // 封装 Tauri IPC，给组件一个干净的接口。
-// 对应 legacy widget 里调用 fetcher / request_refresh 的各种入口。
+// 封装前端调用后端命令与订阅后端事件的入口。
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";

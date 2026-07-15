@@ -1,10 +1,10 @@
-//! GLM 智谱AI Coding Plan 用量查询 —— 对照 legacy `glm_fetcher.py`。
+//! GLM 智谱AI Coding Plan 用量查询。
 //!
 //! URL:    https://open.bigmodel.cn/api/monitor/usage/quota/limit
 //! Auth:   Bearer <api_key>
 //! 返回配额型（type: quota），带 level 套餐档位。
 //!
-//! 关键解析逻辑（逐行对齐 Python）：
+//! 关键解析逻辑：
 //!   - body.code != 200 或无 data → None
 //!   - data.limits 为空 → None
 //!   - limit.type == "TIME_LIMIT" 且 usage>0 → 「工具调用」次条（绝对值，追加末尾）
@@ -47,8 +47,7 @@ struct GlmLimit {
     usage: Option<f64>,
     #[serde(default, rename = "currentValue")]
     current_value: Option<f64>,
-    // 对齐 legacy Python `limit.get("percentage", 0)`：缺省当作 0 而非 None，
-    // 避免 TOKENS_LIMIT 条目因 percentage 字段缺失被静默丢弃。
+    // percentage 缺省为 0，避免 TOKENS_LIMIT 条目因字段缺失被静默丢弃。
     #[serde(default)]
     percentage: f64,
     #[serde(default)]
@@ -60,7 +59,6 @@ struct GlmLimit {
 }
 
 /// 拉取 GLM 配额。无 key / 失败 / 无数据返回 None。
-/// 对应 Python `GlmFetcher.fetch()`。
 pub async fn fetch(api_key: &str) -> Option<GlmResult> {
     if api_key.is_empty() {
         return None;
@@ -114,11 +112,11 @@ pub async fn fetch(api_key: &str) -> Option<GlmResult> {
     for limit in data.limits {
         let total_val = limit.usage;
         let used_val = limit.current_value;
-        // percentage 缺省按 0 处理（对齐 legacy）；不再因 pct 缺失跳过整条
+        // percentage 缺省按 0 处理，不因字段缺失跳过整条。
         let pct = limit.percentage;
 
         if limit.limit_type == "TIME_LIMIT" {
-            // 工具调用次数项：只有 usage>0 才加（对应 Python `if total_val and total_val > 0`）
+            // 工具调用次数项：只有 usage>0 才加入。
             if let Some(t) = total_val {
                 if t > 0.0 {
                     let used = used_val.unwrap_or(0.0);
@@ -140,8 +138,7 @@ pub async fn fetch(api_key: &str) -> Option<GlmResult> {
         }
 
         if limit.limit_type == "TOKENS_LIMIT" {
-            // 对齐 legacy Python：limit_type == "TOKENS_LIMIT" 即进入处理
-            // （Python 的 `pct is not None` 因缺省为 0 永远成立）
+            // TOKENS_LIMIT 始终进入处理；percentage 缺省为 0。
             let label = match (limit.unit.unwrap_or(0), limit.number.unwrap_or(0)) {
                 (3, 5) => "5小时限额",
                 (6, 1) => "周限额",
@@ -202,7 +199,7 @@ pub async fn fetch(api_key: &str) -> Option<GlmResult> {
     })
 }
 
-/// 当前毫秒时间戳，对应 Python `time.time() * 1000`。
+/// 当前毫秒时间戳。
 fn now_ms() -> f64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()
@@ -211,7 +208,7 @@ fn now_ms() -> f64 {
         .unwrap_or(0.0)
 }
 
-/// 格式化 token 数，对应 Python `_fmt_tokens`。
+/// 格式化 token 数。
 fn fmt_tokens(val: f64) -> String {
     if val >= 100_000_000.0 {
         format!("{:.2}亿", val / 100_000_000.0)
@@ -222,7 +219,7 @@ fn fmt_tokens(val: f64) -> String {
     }
 }
 
-/// 格式化毫秒时长为「X天Y小时 / Y小时Z分 / Z分」，对应 Python `_fmt_duration`。
+/// 格式化毫秒时长为「X天Y小时 / Y小时Z分 / Z分」。
 /// 非正值返回空字符串。
 fn fmt_duration(ms: f64) -> String {
     if ms <= 0.0 {

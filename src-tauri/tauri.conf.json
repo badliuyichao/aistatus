@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "com.aistatus.desktop",
   "build": {
-    "beforeDevCommand": "pnpm dev",
+    "beforeDevCommand": "node node_modules/vite/bin/vite.js",
     "devUrl": "http://127.0.0.1:1420",
-    "beforeBuildCommand": "pnpm sync-version && pnpm build",
+    "beforeBuildCommand": "node scripts/sync-version.mjs && node node_modules/vite/bin/vite.js build",
     "frontendDist": "../dist"
   },
   "app": {

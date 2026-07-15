@@ -7,7 +7,15 @@
 
 ## 🔬 无法在本机确认（需对应平台验证）
 
-### [ ] 1. macOS 编译验证：`lib.rs` 的条件编译改动
+### [ ] 1. macOS / Linux：验证内嵌 balance.json 首次启动模板
+
+**背景**：已移除旧实现目录，并改为通过 Rust `include_str!` 将 `src-tauri/resources/balance.json` 编译进程序，避免运行时依赖安装目录外的文件。本机仅能验证 Windows。
+
+**验证/操作方法**：在 macOS 或 Linux 上构建应用，删除该系统用户配置目录中的 `aistatus/balance.json` 后首次启动；再通过「编辑数据文件」确认文件已生成且可正常打开。
+
+**完成判据**：首次启动后在对应系统配置目录生成有效的 `balance.json`，界面正常显示默认服务卡片。
+
+### [ ] 2. macOS 编译验证：`lib.rs` 的条件编译改动
 
 **背景**：为消除 Windows 编译告警（unused import / unused variable），给以下两项加了 `#[cfg(target_os = "macos")]`：
 - `use tauri::Rect;`（macOS 的 `anchor_near_tray(&Rect)` 与 `rect_opt: Option<tauri::Rect>` 使用）
@@ -23,7 +31,7 @@ pnpm build:tauri
 ```
 **完成判据**：`cargo check` 无错无 warning；`pnpm build:tauri` 正常产出 `.app`。
 
-### [ ] 2. macOS / Linux：`build.mjs` 的 `findToolchainBin` 兜底实测
+### [ ] 3. macOS / Linux：`build.mjs` 的 `findToolchainBin` 兜底实测
 
 **背景**：`scripts/build.mjs` 按 `process.platform` / `process.arch` 选 toolchain：
 - Windows → `windows-msvc`（已验证回退成功）
@@ -46,13 +54,13 @@ mv ~/.cargo/bin/cargo.bak ~/.cargo/bin/cargo      # 还原
 
 ## 🧹 其他待办（非阻塞）
 
-### [ ] 3. （可选）重装 rustup，根治 cargo PATH stub
+### [ ] 4. （可选）重装 rustup，根治 cargo PATH stub
 
 **背景**：本机 `~/.cargo/bin` 下 rustup 代理 stub 缺失，`cargo` 不在 PATH。`scripts/build.mjs` 已兜底，日常构建不受影响；此项为根治。
 **操作**：见 `CLAUDE.md`「构建与打包 → 构建环境前提 → 根治」（PowerShell 跑 `rustup-init -y --default-toolchain stable-x86_64-pc-windows-msvc`）。
 **完成判据**：新开终端 `where cargo` 能命中 `~/.cargo/bin/cargo.exe`。
 
-### [ ] 4. （视情况）卸载旧 identifier 的安装版
+### [ ] 5. （视情况）卸载旧 identifier 的安装版
 
 **背景**：identifier 从 `com.aistatus.app` 改为 `com.aistatus.desktop`，新版是不同 Windows 产品，不会覆盖旧版。
 **操作**：若之前装过旧版 setup，到「设置 → 应用」卸载 `AI余额监控`（旧 product code），避免两份共存。

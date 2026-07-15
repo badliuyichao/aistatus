@@ -1,7 +1,7 @@
 # aistatus — AI API 余额监控
 
 桌面常驻悬浮框，监控 DeepSeek / GLM 智谱 / MiniMax 三家 API 余额与配额。
-Tauri 2 + Svelte 5 + TypeScript + Vite 跨平台重写（对应早期 Python+Qt 版本）。
+Tauri 2 + Svelte 5 + TypeScript + Vite 跨平台桌面实现。
 
 ## 开发规则
 

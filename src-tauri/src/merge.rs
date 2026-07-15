@@ -1,7 +1,5 @@
 //! 把三家 fetcher 结果合并进 balance.json 读出的 BalanceData。
 //!
-//! 对应 legacy `data_manager.py` 的 `merge_api_into` + `_merge_deepseek` /
-//! `_merge_glm` / `_merge_minimax`。
 //!
 //! 核心规则（三家一致）：
 //!   - 在 services 里找同名条目：
@@ -14,7 +12,7 @@ use crate::data::{
     BalanceData, DeepSeekResult, FetchOutcome, GlmResult, MinimaxResult, QuotaItem, ServiceInfo,
 };
 
-/// 合并三家结果到 data（原地）。对应 Python `merge_api_into`。
+/// 合并三家结果到 data（原地）。
 pub fn merge_api_into(
     data: &mut BalanceData,
     outcome: &FetchOutcome,
@@ -24,7 +22,7 @@ pub fn merge_api_into(
     merge_minimax(data, outcome.minimax.as_ref());
 }
 
-/// DeepSeek 合并。对应 Python `_merge_deepseek`。
+/// DeepSeek 合并。
 fn merge_deepseek(data: &mut BalanceData, ds: Option<&DeepSeekResult>) {
     // 找现有 DeepSeek 条目
     if let Some(svc) = data.services.iter_mut().find(|s| s.name == "DeepSeek") {
@@ -59,7 +57,7 @@ fn merge_deepseek(data: &mut BalanceData, ds: Option<&DeepSeekResult>) {
     }
 }
 
-/// GLM 合并。对应 Python `_merge_glm`。
+/// GLM 合并。
 /// 匹配认前缀（"GLM 智谱AI" 或 "GLM 智谱AI · "）以兼容带后缀的名称。
 fn merge_glm(data: &mut BalanceData, glm: Option<&GlmResult>) {
     // 找现有 GLM 条目（认前缀）
@@ -129,7 +127,7 @@ fn merge_glm(data: &mut BalanceData, glm: Option<&GlmResult>) {
     }
 }
 
-/// MiniMax 合并。对应 Python `_merge_minimax`。
+/// MiniMax 合并。
 /// 匹配 "MiniMax" 或旧名 "MiniMax 稀宇科技"。
 fn merge_minimax(data: &mut BalanceData, mm: Option<&MinimaxResult>) {
     let pos = data

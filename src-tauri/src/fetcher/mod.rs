@@ -1,14 +1,12 @@
-//! 三个 API 抓取器 —— 对应 legacy `deepseek_fetcher.py` / `glm_fetcher.py` /
-//! `minimax_fetcher.py`。
+//! 三个服务商 API 抓取器。
 //!
 //! 每个 fetcher：
 //!   - 从 config.json 拿自己的 key（`has_key` 判断）
-//!   - 异步 HTTP 请求（`reqwest`，10s 超时，对应 Python urllib timeout=10）
+//!   - 异步 HTTP 请求（`reqwest`，10s 超时）
 //!   - 解析官方响应 → 转成展示用的 ServiceInfo/QuotaItem
-//!   - 失败返回 None（对应 Python 的 return None）
+//!   - 失败返回 None
 //!
-//! 三家请求由 `main.rs` 用 `futures::join!` 并发执行（对应 Python
-//! `ThreadPoolExecutor(max_workers=3)`）。
+//! 三家请求由共享状态模块用 `futures::join!` 并发执行。
 
 pub mod deepseek;
 pub mod glm;
@@ -18,7 +16,6 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 /// 全局共享的 reqwest 客户端（连接池复用，避免每次刷新重建 3 个 client）。
-/// 对应 Python 各 fetcher 的 `urllib.request.urlopen(req, timeout=10)`。
 ///
 /// 用 OnceLock 实现进程级单例：
 ///   - 复用 TLS 会话 / keep-alive 连接，减少重复握手

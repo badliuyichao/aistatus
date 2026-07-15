@@ -1,10 +1,6 @@
 //! 暴露给前端调用的 Tauri 命令。
 //!
-//! 对应 legacy `widget.py` 里的交互入口：
-//!   - 配置 API Key（`_open_config` / `fetcher.set_key`）
-//!   - 手动刷新（`_manual_refresh` / `request_refresh`）
-//!   - 打开数据文件编辑（`_open_data_file`）
-//!   - 首次无 key 引导（`prompt_for_keys_if_needed`）
+//! 包含配置 API Key、手动刷新、打开数据文件与首次设置引导等交互入口。
 
 use tauri::{AppHandle, Emitter, State};
 
@@ -27,7 +23,6 @@ pub fn get_keys() -> ApiKeys {
 }
 
 /// 保存三家 key 并立即触发一次后台刷新。
-/// 对应 legacy 配置框「保存并刷新」。
 #[tauri::command]
 pub async fn save_keys(
     app: AppHandle,
@@ -49,7 +44,6 @@ pub async fn save_keys(
 }
 
 /// 手动触发一次后台刷新（F5 / 右键菜单）。
-/// 对应 legacy `request_refresh`。
 #[tauri::command]
 pub async fn refresh_now(app: AppHandle, _state: State<'_, AppState>) -> Result<(), String> {
     AppState::request_refresh(app).await;
@@ -57,14 +51,12 @@ pub async fn refresh_now(app: AppHandle, _state: State<'_, AppState>) -> Result<
 }
 
 /// 是否还有任何一家 key 未配置（首次运行引导用）。
-/// 对应 legacy `prompt_for_keys_if_needed`。
 #[tauri::command]
 pub fn needs_key_setup() -> bool {
     config::load_keys().all_empty()
 }
 
 /// 用系统默认编辑器打开 balance.json。
-/// 对应 legacy `_open_data_file`。
 ///
 /// 走 tauri-plugin-opener 的系统文件关联（底层 `open` crate）：
 /// 用 .json 的默认程序打开（VS Code / 新版记事本等），

@@ -1,11 +1,11 @@
-//! DeepSeek 余额查询 —— 对照 legacy `deepseek_fetcher.py`。
+//! DeepSeek 余额查询。
 //!
 //! URL:    https://api.deepseek.com/user/balance
 //! Auth:   Bearer <api_key>
-//! 返回余额型 ServiceInfo（对应 Python `type: balance`）。
+//! 返回余额型 ServiceInfo。
 //!
-//! 关键逻辑（逐行对齐 Python）：
-//!   - HTTP 4xx/5xx / 网络错 / JSON 错 → None（Python 打印 stderr 后 return None）
+//! 关键逻辑：
+//!   - HTTP 4xx/5xx / 网络错 / JSON 错 → None
 //!   - `is_available == false` → 红色占位「账户不可用或额度耗尽」
 //!   - 读 `balance_infos[0].total_balance`；货币默认 ¥
 //!   - 余额 > 10 → 蓝色 #4D6BFE，否则 → 红色 #FF5252
@@ -30,7 +30,7 @@ struct DeepSeekResp {
 struct BalanceInfo {
     // DeepSeek 官方 API 返回的 total_balance 是【字符串】（如 "65.02"），
     // 而非 JSON 数字。用 deserialize_f64 兼容字符串与数字两种格式，
-    // 对齐 legacy Python 的 `float(info.get("total_balance", 0))`。
+    // 兼容 API 以字符串或数字返回余额。
     #[serde(default, deserialize_with = "deserialize_f64")]
     total_balance: f64,
     #[serde(default)]
@@ -38,7 +38,7 @@ struct BalanceInfo {
 }
 
 /// 反序列化 f64，兼容 JSON 数字与字符串（如 "65.02" / 65.02）。
-/// 解析失败或缺失时返回 0.0（对齐 Python float() 兜底语义）。
+/// 解析失败或缺失时返回 0.0。
 fn deserialize_f64<'de, D: Deserializer<'de>>(de: D) -> Result<f64, D::Error> {
     use serde::Deserialize;
     let v = serde_json::Value::deserialize(de)?;
@@ -50,7 +50,6 @@ fn deserialize_f64<'de, D: Deserializer<'de>>(de: D) -> Result<f64, D::Error> {
 }
 
 /// 拉取 DeepSeek 余额。无 key 或失败返回 None。
-/// 对应 Python `DeepSeekFetcher.fetch()`。
 pub async fn fetch(api_key: &str) -> Option<DeepSeekResult> {
     if api_key.is_empty() {
         return None;
@@ -70,7 +69,7 @@ pub async fn fetch(api_key: &str) -> Option<DeepSeekResult> {
         }
     };
 
-    // 4xx/5xx → None（Python 打 HTTP 错日志后 return None）
+    // 4xx/5xx → None。
     if !resp.status().is_success() {
         eprintln!("[DeepSeekFetcher] HTTP {} (check api_key / rate limit)", resp.status());
         return None;
@@ -84,7 +83,7 @@ pub async fn fetch(api_key: &str) -> Option<DeepSeekResult> {
         }
     };
 
-    // 账户不可用 → 红色占位（Python 同样逻辑）
+    // 账户不可用 → 红色占位。
     if !body.is_available {
         eprintln!("[DeepSeekFetcher] account unavailable or balance exhausted");
         return Some(DeepSeekResult {
@@ -132,7 +131,7 @@ pub async fn fetch(api_key: &str) -> Option<DeepSeekResult> {
     })
 }
 
-/// 格式化金额为千分位 + 两位小数，对应 Python `f"{total:,.2f}"`。
+/// 格式化金额为千分位 + 两位小数。
 fn format_money(v: f64) -> String {
     // 分整数/小数部分，整数加千分位逗号
     let s = format!("{:.2}", v);

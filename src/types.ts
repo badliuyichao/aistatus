@@ -47,7 +47,7 @@ export function percentage(item: QuotaItem): number {
   return Math.min((item.used / item.total) * 100, 100);
 }
 
-// 工具：把 Unix 秒格式化为「YYYY-MM-DD HH:MM:SS」（与 Rust/Python 一致）
+// 工具：把 Unix 秒格式化为「YYYY-MM-DD HH:MM:SS」。
 export function formatTime(ts?: number): string {
   if (!ts) return "";
   const d = new Date(ts * 1000);

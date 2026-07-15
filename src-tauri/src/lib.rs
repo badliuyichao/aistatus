@@ -1,6 +1,5 @@
 //! AI 余额监控 · Tauri 后端入口。
 //!
-//! 对应 legacy `main.py` + widget 的窗口/托盘初始化：
 //!   - 建窗口（无边框/置顶/透明，配置在 tauri.conf.json）
 //!   - 应用原生毛玻璃（backdrop 模块）
 //!   - 锚定屏幕右下角（_anchor_to_bottom_right）
@@ -207,13 +206,13 @@ pub fn run() {
             }
             tray.build(app)?;
 
-            // ── 启动时触发一次后台拉取（对应 legacy widget.request_refresh）──
+            // ── 启动时触发一次后台拉取 ──
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 AppState::request_refresh(handle).await;
             });
 
-            // ── 60s 定时刷新（对应 legacy main.py 的 QTimer 60_000）──
+            // ── 60s 定时刷新 ──
             let handle2 = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let mut interval = tokio::time::interval(Duration::from_secs(60));
@@ -230,7 +229,7 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
-/// 显示主窗口（托盘「显示」/ 双击）。对应 legacy `_show_window`。
+/// 显示主窗口（托盘「显示」/ 双击）。
 fn show_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
@@ -240,7 +239,7 @@ fn show_main_window(app: &tauri::AppHandle) {
 }
 
 /// 把窗口移到**主显示器**工作区右下角（排除 Dock/任务栏）。
-/// 对应 legacy `_anchor_to_bottom_right`。Windows 及其他平台用。
+/// Windows 及其他平台用。
 ///
 /// 用 primary_monitor() 而非 current_monitor()：新创建的窗口 current_monitor
 /// 可能落在副屏（甚至休眠/关闭的副屏），导致悬浮框锚到用户看不见的地方。

@@ -52,7 +52,7 @@ listen('open-config')          · 原生毛玻璃/托盘/窗口定位
 │   └── assets/                品牌 Logo
 ├── src-tauri/                 后端 (Rust)
 │   ├── src/
-│   │   ├── data.rs            数据模型 (对齐 legacy Python)
+│   │   ├── data.rs            数据模型
 │   │   ├── config.rs          config.json 读写 (跨平台路径)
 │   │   ├── fetcher/           deepseek / glm / minimax 抓取器
 │   │   ├── merge.rs           三家结果合并进 BalanceData
@@ -62,7 +62,6 @@ listen('open-config')          · 原生毛玻璃/托盘/窗口定位
 │   │   └── lib.rs             入口：托盘 + 窗口定位 + 定时 + 关闭拦截
 │   ├── tauri.conf.json        窗口/包名/打包配置
 │   └── resources/balance.json 首次运行模板
-├── legacy/                    旧版 Python/PySide6 实现（行为参考，已归档）
 └── package.json
 ```
 
@@ -134,7 +133,3 @@ pnpm tauri build
 - **Svelte 5** + **TypeScript** + **Vite**（前端）
 - **reqwest / tokio**（异步 HTTP）
 - **window-vibrancy**（原生毛玻璃）
-
-## legacy
-
-`legacy/` 目录是重构前的 Python/PySide6 实现（仅 Windows），保留作为**行为规格参考**。三个 fetcher 的解析逻辑、合并规则等都逐字段对照过它。详见 `legacy/README-legacy.md`。

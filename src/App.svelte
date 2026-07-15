@@ -1,6 +1,5 @@
 <script lang="ts">
   // 主壳：标题区 + 卡片列表 + 页脚 + 右键菜单 + F5 + 首次引导。
-  // 对应 legacy widget.py 的 MainWidget。
   // macOS 用原生红绿灯（关闭/最小化/全屏），窗口控制不再用自定义按钮；
   // 配置入口移到右键菜单。窗口默认 alwaysOnTop（见 tauri.conf.json）。
   import { onMount, onDestroy, tick } from "svelte";
@@ -58,7 +57,7 @@
     // 窗口默认隐藏，唤起前完成，无主题闪烁。
     await theme.init();
     await services.init();
-    // 首次无 key → 弹配置框（对应 legacy prompt_for_keys_if_needed）
+    // 首次无 key 时弹出配置框。
     try {
       if (await needsKeySetup()) {
         showConfig = true;
@@ -88,7 +87,7 @@
     resizeObserver?.disconnect();
   });
 
-  // F5 刷新（对应 legacy QShortcut F5）
+  // F5 刷新。
   function onKeydown(e: KeyboardEvent) {
     if (e.key === "F5") {
       e.preventDefault();

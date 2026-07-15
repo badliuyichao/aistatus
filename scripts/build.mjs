@@ -1,4 +1,4 @@
-// 构建 wrapper：确保 cargo/rustc 在 PATH 后再调 `tauri build`。
+// 构建 wrapper：确保 cargo/rustc 在 PATH 后再调本地 Tauri CLI。
 //
 // 背景：本机 ~/.cargo/bin 下的 rustup 代理 stub 缺失，导致 cargo 不在 PATH。
 // 这里优先用 ~/.cargo/bin（正常环境），找不到则回退到 toolchain bin（当前环境兜底），
@@ -37,7 +37,9 @@ function findToolchainBin() {
 }
 
 const env = { ...process.env };
-const extra = [];
+// Tauri 的 beforeBuildCommand 由系统 shell 执行；确保它能找到当前运行
+// 此脚本的 Node 可执行文件，即使 PATH 里只有 PowerShell shim。
+const extra = [path.dirname(process.execPath)];
 if (fs.existsSync(path.join(cargoBin, `cargo${exe}`))) {
   extra.push(cargoBin); // 正常：rustup stub 在
 } else {
@@ -49,9 +51,16 @@ if (fs.existsSync(path.join(cargoBin, `cargo${exe}`))) {
 }
 if (extra.length) env.PATH = extra.join(sep) + sep + (env.PATH ?? "");
 
-const r = spawnSync("pnpm", ["tauri", "build", ...process.argv.slice(2)], {
+// 直接运行项目已安装的 Tauri CLI，避免 Windows 上只有 pnpm.ps1 时，
+// `shell: true` 的 cmd.exe 找不到 pnpm 的问题；Node 路径在三平台一致可用。
+const tauriCli = path.join(process.cwd(), "node_modules", "@tauri-apps", "cli", "tauri.js");
+if (!fs.existsSync(tauriCli)) {
+  console.error("[build] 找不到本地 Tauri CLI，请先运行 pnpm install");
+  process.exit(1);
+}
+
+const r = spawnSync(process.execPath, [tauriCli, "build", ...process.argv.slice(2)], {
   stdio: "inherit",
   env,
-  shell: isWin,
 });
 process.exit(r.status ?? 1);

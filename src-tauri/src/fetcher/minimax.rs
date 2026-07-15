@@ -1,4 +1,4 @@
-//! MiniMax 稀宇科技 Coding Plan 用量查询 —— 对照 legacy `minimax_fetcher.py`。
+//! MiniMax 稀宇科技 Coding Plan 用量查询。
 //!
 //! URL:    https://www.minimaxi.com/v1/api/openplatform/coding_plan/remains
 //! Auth:   Bearer <api_key>
@@ -28,9 +28,8 @@ const MINIMAX_QUOTA_URL: &str =
 struct MinimaxResp {
     #[serde(default)]
     base_resp: Option<BaseResp>,
-    // 用 Option + default 容错 API 返回 "model_remains": null
-    // （对齐 legacy Python `body.get("model_remains") or []`）。否则 serde 对
-    // null 反序列化 Vec 会失败，整个响应被静默吞掉，导致 MiniMax 整卡消失。
+    // 用 Option + default 容错 API 返回 "model_remains": null；否则 serde
+    // 将 null 反序列化为 Vec 时会失败，整个响应被静默吞掉，导致 MiniMax 整卡消失。
     #[serde(default)]
     model_remains: Option<Vec<ModelRemain>>,
 }
@@ -63,7 +62,7 @@ struct ModelRemain {
     weekly_remains_time: Option<f64>,
 }
 
-/// 标识取哪个窗口的字段（对应 Python `status_field`/`pct_field`/`remains_field` 字符串）。
+/// 标识取哪个窗口的字段。
 enum Window {
     Interval,
     Weekly,
@@ -91,7 +90,7 @@ impl Window {
 }
 
 /// 拉取 MiniMax 配额。无 key/失败返回 None；
-/// API 错误或无数据返回带占位条的 MinimaxResult（对应 Python 逻辑）。
+/// API 错误或无数据返回带占位条的 MinimaxResult。
 pub async fn fetch(api_key: &str) -> Option<MinimaxResult> {
     if api_key.is_empty() {
         return None;
@@ -252,7 +251,7 @@ fn aggregate_window(
     }
 }
 
-/// 占位条（API 错误 / 无数据时），对应 Python `_placeholder_items`。
+/// 占位条（API 错误 / 无数据时）。
 fn placeholder_items(msg: String) -> Vec<QuotaItem> {
     vec![
         QuotaItem {
@@ -272,7 +271,7 @@ fn placeholder_items(msg: String) -> Vec<QuotaItem> {
     ]
 }
 
-/// 格式化毫秒时长，对应 Python `_fmt_duration`（与 glm 模块同名同实现）。
+/// 格式化毫秒时长。
 fn fmt_duration(ms: f64) -> String {
     if ms <= 0.0 {
         return String::new();

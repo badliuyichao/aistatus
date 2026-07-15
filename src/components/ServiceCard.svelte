@@ -1,11 +1,10 @@
 <script lang="ts">
   // 服务卡片：图标 + 名称 + 状态点 + 内容（quota 多行 / balance 金额）。
-  // 对应 legacy widget.py 的 ServiceCard。
   import type { ServiceInfo } from "../types";
   import QuotaRow from "./QuotaRow.svelte";
   import BalanceView from "./BalanceView.svelte";
 
-  // 品牌图标按名称前缀匹配（对应 legacy _service_logo 的 startswith 逻辑）
+  // 品牌图标按名称前缀匹配。
   import glmLogo from "../assets/glm.png";
   import deepseekLogo from "../assets/deepseek.png";
   import minimaxLogo from "../assets/minimax.png";
@@ -21,7 +20,7 @@
   }
 
   let brandLogo = $derived(logo(service.name));
-  // 状态点颜色：loading 时暗灰，否则主题色（对应 legacy _update_header）
+  // 状态点颜色：loading 时暗灰，否则主题色。
   let statusColor = $derived(service.loading ? "#C8CDD6" : service.color);
 </script>
 

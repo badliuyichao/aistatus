@@ -1,6 +1,5 @@
 //! 平台原生毛玻璃 —— mac NSVisualEffectView vibrancy + Win acrylic/mica。
 //!
-//! 对应 legacy widget.py 的 `_try_enable_acrylic`（多级降级）。
 //! 失败时静默返回，前端降级为 CSS 半透明卡片（.bg-card 已是半透明底）。
 //!
 //! window-vibrancy crate 提供跨平台 API：
