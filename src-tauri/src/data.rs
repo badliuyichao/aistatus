@@ -16,6 +16,11 @@ pub struct QuotaItem {
     #[serde(default)]
     pub label: String,
 
+    /// 可选的自定义展示值（如无限额 `∞`）。
+    /// 仅影响前端右侧文本，进度条仍使用 used / total。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_value: Option<String>,
+
     #[serde(default)]
     pub used: f64,
 

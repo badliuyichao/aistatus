@@ -79,7 +79,10 @@ pub async fn fetch(api_key: &str) -> Option<GlmResult> {
     };
 
     if !resp.status().is_success() {
-        eprintln!("[GlmFetcher] HTTP {} (check api_key / rate limit)", resp.status());
+        eprintln!(
+            "[GlmFetcher] HTTP {} (check api_key / rate limit)",
+            resp.status()
+        );
         return None;
     }
 
@@ -123,6 +126,7 @@ pub async fn fetch(api_key: &str) -> Option<GlmResult> {
                     let reset = fmt_duration(limit.next_reset_time.unwrap_or(0.0) - now_ms);
                     tool_item = Some(QuotaItem {
                         label: "工具调用".into(),
+                        display_value: None,
                         used,
                         total: t,
                         unit: "次".into(),
@@ -151,6 +155,7 @@ pub async fn fetch(api_key: &str) -> Option<GlmResult> {
                     let used = used_val.unwrap_or(0.0);
                     items.push(QuotaItem {
                         label: label.into(),
+                        display_value: None,
                         used,
                         total: t,
                         unit: "tokens".into(),
@@ -168,6 +173,7 @@ pub async fn fetch(api_key: &str) -> Option<GlmResult> {
             let reset = fmt_duration(limit.next_reset_time.unwrap_or(0.0) - now_ms);
             items.push(QuotaItem {
                 label: label.into(),
+                display_value: None,
                 used: pct,
                 total: 100.0,
                 unit: "%".into(),

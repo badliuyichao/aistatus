@@ -6,6 +6,9 @@
   let { item, color }: { item: QuotaItem; color: string } = $props();
 
   let pct = $derived(percentage(item));
+  let valueText = $derived(
+    item.displayValue ?? `${fmtNum(item.used)}/${fmtNum(item.total)} ${item.unit}`
+  );
 
   // used/total 显示：整数不带小数，浮点保留一位。
   function fmtNum(n: number): string {
@@ -16,7 +19,11 @@
 <div class="row">
   <div class="label-row">
     <span class="name">{item.label}</span>
-    <span class="value">{fmtNum(item.used)}/{fmtNum(item.total)} {item.unit}</span>
+    <span
+      class="value"
+      class:unlimited={item.displayValue === "∞"}
+      title={item.displayValue === "∞" ? "无限额" : undefined}
+    >{valueText}</span>
   </div>
   <div class="bar" style="--pct:{pct}%; --color:{color};"></div>
   {#if item.detail}
@@ -41,6 +48,10 @@
   .value {
     color: var(--text-secondary);
     font-size: 11px;
+  }
+  .value.unlimited {
+    font-size: 17px;
+    line-height: 12px;
   }
   .bar {
     height: 8px;

@@ -3,6 +3,7 @@
 
 export interface QuotaItem {
   label: string;
+  displayValue?: string; // 自定义右侧显示，如无限额 ∞
   used: number;
   total: number;
   unit: string;
