@@ -24,7 +24,8 @@ export function getTheme(): Promise<Theme> {
 }
 
 export function setTheme(theme: Theme): Promise<void> {
-  return invoke("set_theme", { theme });
+  // 后端 command 函数名为 save_theme，Tauri 按函数名注册，故 invoke 用 save_theme。
+  return invoke("save_theme", { theme });
 }
 
 // 窗口高度自适应内容：前端量得内容高度后调用，后端据此 set_size 并重新锚定右下角。
