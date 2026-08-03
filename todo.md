@@ -50,6 +50,28 @@ mv ~/.cargo/bin/cargo.bak ~/.cargo/bin/cargo      # 还原
 
 **完成判据**：mac / Linux 上 `pnpm build:tauri` 成功产出 `.app` / AppImage。
 
+### [ ] 6. macOS / Linux：悬浮球（float 窗口）定位、透明度与显隐实测
+
+**背景**：新增了第二个窗口 `label: "float"`（72×72 透明置顶悬浮球），定位逻辑：
+- Windows / Linux：复用 `anchor_to_bottom_right`（右下角，避任务栏 48px）—— Windows 本机已验证编译通过，**未实测运行**。
+- macOS：复用 `anchor_top_right`（右上角菜单栏下方）—— 本机无 mac 无法实测。
+- 启动后由后端 `win.show()` 显示；托盘「悬浮球」`CheckMenuItem` 切换显隐。
+- 位置持久化到 `config.json` 的 `floatWindow: {x, y}`（逻辑像素），拖拽结束防抖落盘。
+
+**当前状态**：Windows `cargo check` + `pnpm check` 均通过（0 error 0 warning）。mac / Linux 透明窗口依赖系统合成器，Linux 下若合成器不支持透明可能退化为不透明黑底。
+
+**验证/操作方法**（在 mac / Linux 上）：
+```bash
+pnpm tauri dev
+# 观察：悬浮球是否出现在预期位置、背景是否透明、拖拽后重启位置是否恢复
+# 托盘菜单「悬浮球」勾选态切换是否正常 show/hide
+```
+**完成判据**：
+1. 悬浮球在 mac 右上角 / Linux 右下角正确出现，背景透明（露出桌面）。
+2. 拖拽后重启 dev，位置恢复到上次落点。
+3. 托盘菜单「悬浮球」项切换显隐且勾选态同步。
+4. 60s 刷新后数字与颜色随 GLM/MiniMax 最低余量更新。
+
 ---
 
 ## 🧹 其他待办（非阻塞）

@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "主窗口能力：自定义命令 + 窗口控制 + 事件监听 + opener",
-  "windows": ["main"],
+  "description": "主窗口 + 悬浮球窗口能力：自定义命令 + 窗口控制 + 事件监听 + opener",
+  "windows": ["main", "float"],
   "permissions": [
     "core:default",
     "core:window:allow-set-always-on-top",

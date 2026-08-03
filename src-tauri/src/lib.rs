@@ -17,7 +17,7 @@ mod state;
 use std::time::Duration;
 
 use tauri::{
-    menu::{Menu, MenuItem},
+    menu::{CheckMenuItem, Menu, MenuItem},
     tray::TrayIconBuilder,
     Emitter, Manager, PhysicalPosition,
 };
@@ -62,6 +62,8 @@ pub fn run() {
             commands::open_balance_file,
             commands::get_theme,
             commands::save_theme,
+            commands::save_float_position,
+            commands::set_float_visible,
             fit_to_content,
         ])
         .setup(|app| {
@@ -164,19 +166,56 @@ pub fn run() {
                 });
             }
 
+            // ── 悬浮球窗口初始化 ──
+            // 与主窗口不同：悬浮球默认启动可见（visible:false 是为先定位再 show，
+            // 避免在屏幕中间闪现后跳到目标位置）。
+            // 不应用毛玻璃（小尺寸毛玻璃观感差），仅 Win11 用 DWM 原生圆角。
+            if let Some(window) = app.get_webview_window("float") {
+                #[cfg(target_os = "windows")]
+                backdrop::apply_rounded_corners(&window);
+
+                let win = window.clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(Duration::from_millis(80)).await;
+
+                    // 优先恢复上次位置；无记录则用平台默认锚点（复用主窗口定位函数，
+                    // 它按窗口自身尺寸算位置，对 72×72 小球同样适用）。
+                    if let Some((x, y)) = config::load_float_position() {
+                        let _ = win.set_position(tauri::Position::Logical(
+                            tauri::LogicalPosition::new(x, y),
+                        ));
+                    } else {
+                        #[cfg(not(target_os = "macos"))]
+                        anchor_to_bottom_right(&win);
+                        #[cfg(target_os = "macos")]
+                        anchor_top_right(&win);
+                    }
+                    let _ = win.show();
+                });
+            }
+
             // ── 系统托盘菜单 ──
             // 左键/右键点击托盘都弹出此菜单。窗口默认隐藏，通过「打开主界面」显示。
             let show_item = MenuItem::with_id(app, "show", "打开主界面", true, None::<&str>)?;
+            // 悬浮条开关：CheckMenuItem 才支持选中态。启动默认显示，故初始 checked=true。
+            let float_item = CheckMenuItem::with_id(app, "float", "悬浮条", true, true, None::<&str>)?;
             let config_item = MenuItem::with_id(app, "config", "设置…", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show_item, &config_item, &quit_item])?;
+            let menu = Menu::with_items(
+                app,
+                &[&show_item, &float_item, &config_item, &quit_item],
+            )?;
+
+            // 悬浮球菜单项克隆：事件闭包里直接用它读写选中态，
+            // 免去从 app/tray menu 反查的繁琐（CheckMenuItem 内部 Arc，clone 廉价）。
+            let float_item_for_closure = float_item.clone();
 
             let mut tray = TrayIconBuilder::with_id("main")
                 .tooltip("AI API 余额监控")
                 .menu(&menu)
                 // 左键点击也显示菜单（与右键行为一致）
                 .show_menu_on_left_click(true)
-                .on_menu_event(|app, event| match event.id().as_ref() {
+                .on_menu_event(move |app, event| match event.id().as_ref() {
                     "show" => {
                         // 打开主界面：macOS 上跟随托盘图标位置弹出，再显示并聚焦
                         #[cfg(target_os = "macos")]
@@ -190,6 +229,15 @@ pub fn run() {
                             }
                         }
                         show_main_window(app);
+                    }
+                    "float" => {
+                        // 悬浮球开关：读当前选中态取反，切换窗口显隐并同步勾选。
+                        let now_visible = float_item_for_closure.is_checked().unwrap_or(true);
+                        let next = !now_visible;
+                        if let Some(window) = app.get_webview_window("float") {
+                            let _ = if next { window.show() } else { window.hide() };
+                        }
+                        let _ = float_item_for_closure.set_checked(next);
                     }
                     "config" => {
                         // 设置：显示主窗口并通知前端打开配置对话框

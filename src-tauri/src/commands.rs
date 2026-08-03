@@ -2,7 +2,7 @@
 //!
 //! 包含配置 API Key、手动刷新、打开数据文件与首次设置引导等交互入口。
 
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::config::{self, ApiKeys};
 use crate::data::BalanceData;
@@ -87,4 +87,23 @@ pub fn save_theme(theme: String) -> Result<(), String> {
 #[allow(dead_code)]
 pub fn emit_services_updated(app: &AppHandle, data: &BalanceData) {
     let _ = app.emit("services-updated", data.clone());
+}
+
+/// 保存悬浮球窗口位置（逻辑像素）。前端拖拽结束时调用。
+#[tauri::command]
+pub fn save_float_position(x: f64, y: f64) -> Result<(), String> {
+    config::save_float_position(x, y).map_err(|e| e.to_string())
+}
+
+/// 显示 / 隐藏悬浮球窗口（托盘菜单开关用）。
+#[tauri::command]
+pub fn set_float_visible(app: AppHandle, visible: bool) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("float") {
+        if visible {
+            let _ = window.show();
+        } else {
+            let _ = window.hide();
+        }
+    }
+    Ok(())
 }

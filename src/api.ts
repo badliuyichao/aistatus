@@ -48,6 +48,11 @@ export function fitToContent(height: number): Promise<void> {
   return invoke("fit_to_content", { height });
 }
 
+// 保存悬浮球窗口位置（逻辑像素）。拖拽结束时落盘，下次启动恢复。
+export function saveFloatPosition(x: number, y: number): Promise<void> {
+  return invoke("save_float_position", { x, y });
+}
+
 // ── events（Rust → 前端）──
 
 // 订阅后端的 services-updated 事件；返回取消订阅函数。

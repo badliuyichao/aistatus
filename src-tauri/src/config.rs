@@ -138,3 +138,33 @@ fn read_config_value() -> serde_json::Value {
         .filter(|v: &serde_json::Value| v.is_object())
         .unwrap_or_else(|| serde_json::json!({}))
 }
+
+// ── 悬浮球窗口位置（config.json 的 floatWindow 字段，逻辑像素）──
+
+/// 读悬浮球上次位置（逻辑像素 x, y）；不存在 / 损坏返回 None。
+pub fn load_float_position() -> Option<(f64, f64)> {
+    let v = read_config_value();
+    let obj = v.get("floatWindow")?.as_object()?;
+    let x = obj.get("x")?.as_f64()?;
+    let y = obj.get("y")?.as_f64()?;
+    Some((x, y))
+}
+
+/// 写悬浮球位置：读-改-写（保留其他字段）+ 原子 tmp+rename。
+pub fn save_float_position(x: f64, y: f64) -> std::io::Result<()> {
+    let path = config_path();
+    let mut value = read_config_value();
+    if let Some(obj) = value.as_object_mut() {
+        obj.insert(
+            "floatWindow".into(),
+            serde_json::json!({ "x": x, "y": y }),
+        );
+    }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let tmp = path.with_extension("json.tmp");
+    fs::write(&tmp, serde_json::to_string_pretty(&value)?)?;
+    fs::rename(&tmp, &path)?;
+    Ok(())
+}
