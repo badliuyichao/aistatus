@@ -24,16 +24,6 @@
       "color": "#2563EB"
     },
     {
-      "name": "DeepSeek",
-      "type": "balance",
-      "icon": "🟢",
-      "balance": 128.50,
-      "currency": "¥",
-      "unit": "元",
-      "detail": "剩余 ¥128.50",
-      "color": "#4D6BFE"
-    },
-    {
       "name": "MiniMax",
       "type": "quota",
       "icon": "🟠",

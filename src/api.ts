@@ -16,11 +16,10 @@ export function getKeys(): Promise<ApiKeys> {
 }
 
 export function saveKeys(
-  deepseek: string,
   glm: string,
   minimax: string
 ): Promise<void> {
-  return invoke("save_keys", { deepseek, glm, minimax });
+  return invoke("save_keys", { glm, minimax });
 }
 
 export function refreshNow(): Promise<void> {

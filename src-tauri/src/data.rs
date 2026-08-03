@@ -57,7 +57,7 @@ impl QuotaItem {
     }
 }
 
-/// 一个服务商条目（GLM / DeepSeek / MiniMax）。
+/// 一个服务商条目（GLM / MiniMax）。
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ServiceInfo {
@@ -140,22 +140,7 @@ impl BalanceData {
 }
 
 // ── fetcher 返回的原始 API 数据（merge 前的中间结构）──
-// 三家响应结构不同；各 fetcher 解析后统一转换为这些结构。
-
-/// DeepSeek fetcher 返回的展示数据。
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DeepSeekResult {
-    pub name: String,
-    pub r#type: String,
-    #[serde(default)]
-    pub icon: String,
-    pub balance: f64,
-    pub currency: String,
-    pub unit: String,
-    pub detail: String,
-    pub color: String,
-}
+// 两家响应结构不同；各 fetcher 解析后统一转换为这些结构。
 
 /// GLM fetcher 返回的展示数据（带 level 套餐档位）。
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -183,10 +168,9 @@ pub struct MinimaxResult {
     pub items: Vec<QuotaItem>,
 }
 
-/// 三家拉取结果（任一为 None 表示无 key / 失败 / 无数据）。
+/// 两家拉取结果（任一为 None 表示无 key / 失败 / 无数据）。
 #[derive(Clone, Debug, Default)]
 pub struct FetchOutcome {
-    pub deepseek: Option<DeepSeekResult>,
     pub glm: Option<GlmResult>,
     pub minimax: Option<MinimaxResult>,
 }

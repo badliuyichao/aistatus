@@ -37,7 +37,6 @@ export interface BalanceData {
 
 // get_keys / save_keys 用
 export interface ApiKeys {
-  deepseekApiKey: string;
   glmApiKey: string;
   minimaxApiKey: string;
 }

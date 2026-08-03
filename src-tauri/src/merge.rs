@@ -1,7 +1,7 @@
-//! 把三家 fetcher 结果合并进 balance.json 读出的 BalanceData。
+//! 把两家 fetcher 结果合并进 balance.json 读出的 BalanceData。
 //!
 //!
-//! 核心规则（三家一致）：
+//! 核心规则（两家一致）：
 //!   - 在 services 里找同名条目：
 //!       找到 + 有数据 → 就地覆盖字段
 //!       找到 + 无数据(None) → 标 loading=true（卡片显示 N/A 而非旧文件值）
@@ -9,52 +9,23 @@
 //!   - GLM 特殊：名称带套餐后缀「GLM 智谱AI · {LEVEL}」，匹配时认前缀
 
 use crate::data::{
-    BalanceData, DeepSeekResult, FetchOutcome, GlmResult, MinimaxResult, QuotaItem, ServiceInfo,
+    BalanceData, FetchOutcome, GlmResult, MinimaxResult, QuotaItem, ServiceInfo,
 };
 
-/// 合并三家结果到 data（原地）。
+/// 合并两家结果到 data（原地）。
 pub fn merge_api_into(
     data: &mut BalanceData,
     outcome: &FetchOutcome,
 ) {
-    merge_deepseek(data, outcome.deepseek.as_ref());
     merge_glm(data, outcome.glm.as_ref());
     merge_minimax(data, outcome.minimax.as_ref());
-}
-
-/// DeepSeek 合并。
-fn merge_deepseek(data: &mut BalanceData, ds: Option<&DeepSeekResult>) {
-    // 找现有 DeepSeek 条目
-    if let Some(svc) = data.services.iter_mut().find(|s| s.name == "DeepSeek") {
-        match ds {
-            None => svc.loading = true,
-            Some(d) => {
-                svc.r#type = d.r#type.clone();
-                svc.balance = d.balance;
-                svc.currency = d.currency.clone();
-                svc.unit = d.unit.clone();
-                svc.detail = d.detail.clone();
-                svc.color = d.color.clone();
-                svc.loading = false;
-            }
-        }
-        return;
-    }
-
-    // 无现有条目 → 有数据才追加
-    if let Some(d) = ds {
-        data.services.push(ServiceInfo {
-            name: "DeepSeek".into(),
-            r#type: d.r#type.clone(),
-            icon: d.icon.clone(),
-            color: d.color.clone(),
-            balance: d.balance,
-            currency: d.currency.clone(),
-            unit: d.unit.clone(),
-            detail: d.detail.clone(),
-            ..Default::default()
-        });
-    }
+    // 清理历史残留条目：用户 balance.json 可能含已废弃服务（如旧版的 DeepSeek），
+    // 这些服务不再有 fetcher 更新，会变成永不刷新的死卡片。这里只保留当前支持的
+    // 两家（GLM / MiniMax），与 merge 的名称匹配规则一致。
+    data.services.retain(|s| {
+        let n = s.name.trim();
+        n.starts_with("GLM") || n.starts_with("MiniMax")
+    });
 }
 
 /// GLM 合并。

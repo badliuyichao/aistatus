@@ -4,14 +4,14 @@
 //!
 //! 拉取流程（每次 request_refresh）：
 //!   1. 若已有拉取在跑 → 直接返回
-//!   2. 并发拉三家（`tokio::join!`）
+//!   2. 并发拉两家（`futures::join`）
 //!   3. 读 balance.json → merge → 更新快照
 //!   4. emit `services-updated` 给前端
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use futures::future::join3;
+use futures::future::join;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::config::{self, ApiKeys};
@@ -96,18 +96,16 @@ impl Drop for BusyGuard {
     }
 }
 
-/// 一次完整拉取：并发三请求 → merge → 更新快照 → emit。
+/// 一次完整拉取：并发两请求 → merge → 更新快照 → emit。
 async fn do_fetch_and_emit(state: &AppState, keys: &ApiKeys, app: &AppHandle) {
-    // 并发拉三家。
-    let (ds, glm, mm) = join3(
-        fetcher::deepseek::fetch(&keys.deepseek_api_key),
+    // 并发拉两家。
+    let (glm, mm) = join(
         fetcher::glm::fetch(&keys.glm_api_key),
         fetcher::minimax::fetch(&keys.minimax_api_key),
     )
     .await;
 
     let outcome = FetchOutcome {
-        deepseek: ds,
         glm,
         minimax: mm,
     };

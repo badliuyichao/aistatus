@@ -17,7 +17,6 @@
     { id: "light", label: "浅色" },
   ];
 
-  let deepseek = $state("");
   let glm = $state("");
   let minimax = $state("");
   let showKeys = $state(false);
@@ -27,7 +26,6 @@
   onMount(async () => {
     try {
       const keys = await getKeys();
-      deepseek = keys.deepseekApiKey;
       glm = keys.glmApiKey;
       minimax = keys.minimaxApiKey;
     } catch (e) {
@@ -39,7 +37,7 @@
     saving = true;
     error = "";
     try {
-      await saveKeys(deepseek, glm, minimax);
+      await saveKeys(glm, minimax);
       onclose();
     } catch (e) {
       error = String(e);
@@ -87,15 +85,6 @@
       <div class="hint">
         留空则清除该厂商的已保存配置。保存后自动刷新数据。
       </div>
-
-      <label class="field">
-        <span class="lbl">DeepSeek</span>
-        <input
-          type={showKeys ? "text" : "password"}
-          placeholder="sk-..."
-          bind:value={deepseek}
-        />
-      </label>
 
       <label class="field">
         <span class="lbl">GLM 智谱AI</span>

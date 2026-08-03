@@ -12,13 +12,10 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-/// 三家 API 密钥。任一为空字符串表示「未配置该厂商」。
+/// 两家 API 密钥。任一为空字符串表示「未配置该厂商」。
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiKeys {
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub deepseek_api_key: String,
-
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub glm_api_key: String,
 
@@ -27,16 +24,11 @@ pub struct ApiKeys {
 }
 
 impl ApiKeys {
-    /// 是否三家都未配置（首次运行判断用）。
+    /// 是否两家都未配置（首次运行判断用）。
     pub fn all_empty(&self) -> bool {
-        self.deepseek_api_key.is_empty()
-            && self.glm_api_key.is_empty()
-            && self.minimax_api_key.is_empty()
+        self.glm_api_key.is_empty() && self.minimax_api_key.is_empty()
     }
 
-    pub fn has_deepseek(&self) -> bool {
-        !self.deepseek_api_key.is_empty()
-    }
     pub fn has_glm(&self) -> bool {
         !self.glm_api_key.is_empty()
     }

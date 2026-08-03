@@ -1,4 +1,4 @@
-//! 三个服务商 API 抓取器。
+//! 两家服务商 API 抓取器。
 //!
 //! 每个 fetcher：
 //!   - 从 config.json 拿自己的 key（`has_key` 判断）
@@ -6,9 +6,8 @@
 //!   - 解析官方响应 → 转成展示用的 ServiceInfo/QuotaItem
 //!   - 失败返回 None
 //!
-//! 三家请求由共享状态模块用 `futures::join!` 并发执行。
+//! 两家请求由共享状态模块用 `futures::join` 并发执行。
 
-pub mod deepseek;
 pub mod glm;
 pub mod minimax;
 

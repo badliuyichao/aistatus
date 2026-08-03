@@ -6,7 +6,6 @@
 
   // 品牌图标按名称前缀匹配。
   import glmLogo from "../assets/glm.png";
-  import deepseekLogo from "../assets/deepseek.png";
   import minimaxLogo from "../assets/minimax.png";
 
   let { service }: { service: ServiceInfo } = $props();
@@ -14,7 +13,6 @@
   function logo(name: string): string | null {
     const n = (name || "").trim();
     if (n.startsWith("GLM")) return glmLogo;
-    if (n.startsWith("DeepSeek")) return deepseekLogo;
     if (n.startsWith("MiniMax")) return minimaxLogo;
     return null;
   }

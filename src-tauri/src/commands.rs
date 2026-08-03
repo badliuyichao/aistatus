@@ -22,17 +22,15 @@ pub fn get_keys() -> ApiKeys {
     config::load_keys()
 }
 
-/// 保存三家 key 并立即触发一次后台刷新。
+/// 保存两家 key 并立即触发一次后台刷新。
 #[tauri::command]
 pub async fn save_keys(
     app: AppHandle,
     state: State<'_, AppState>,
-    deepseek: String,
     glm: String,
     minimax: String,
 ) -> Result<(), String> {
     let keys = ApiKeys {
-        deepseek_api_key: deepseek.trim().to_string(),
         glm_api_key: glm.trim().to_string(),
         minimax_api_key: minimax.trim().to_string(),
     };
