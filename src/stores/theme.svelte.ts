@@ -6,6 +6,7 @@
 // system 模式监听 matchMedia('prefers-color-scheme')，系统主题变化时自动重解析。
 // 窗口默认隐藏 → init 在用户唤起前完成，无主题闪烁。
 
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getTheme, setTheme } from "../api";
 import type { Theme } from "../types";
 
@@ -16,9 +17,10 @@ class ThemeStore {
   resolved = $state<Resolved>("light");
 
   private mql: MediaQueryList | undefined;
+  private unlistenTheme?: UnlistenFn;
   private inited = false;
 
-  /** 启动时调一次：读偏好 + 应用 + 监听系统主题。重复调用忽略。 */
+  /** 启动时调一次：读偏好 + 应用 + 监听系统主题 + 监听跨窗口同步。重复调用忽略。 */
   async init() {
     if (this.inited) return;
     this.inited = true;
@@ -29,11 +31,19 @@ class ThemeStore {
     }
     this.mql = window.matchMedia("(prefers-color-scheme: dark)");
     this.mql.addEventListener("change", this.onSystemChange);
+    // 跨窗口主题同步：主窗口改主题 → 后端广播 theme-changed → 所有窗口重应用。
+    // 主窗口和悬浮条是独立 webview，各自 document 互不可见，必须靠事件同步。
+    // 发起切换的窗口自身已 apply，收到事件再 apply 一次幂等无副作用。
+    this.unlistenTheme = await listen<Theme>("theme-changed", (e) => {
+      this.pref = e.payload;
+      this.apply();
+    });
     this.apply();
   }
 
   destroy() {
     this.mql?.removeEventListener("change", this.onSystemChange);
+    this.unlistenTheme?.();
   }
 
   private onSystemChange = () => {
@@ -49,7 +59,7 @@ class ThemeStore {
     document.documentElement.dataset.theme = resolved;
   }
 
-  /** 切换偏好：即时应用（用户立刻看到效果）+ 持久化到 config.json。 */
+  /** 切换偏好：即时应用（用户立刻看到效果）+ 持久化 + 广播给其他窗口。 */
   async set(pref: Theme) {
     this.pref = pref;
     this.apply();

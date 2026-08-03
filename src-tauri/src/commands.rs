@@ -41,13 +41,17 @@ pub fn get_theme() -> String {
     config::load_theme()
 }
 
-/// 保存主题偏好。前端已即时应用，这里只持久化到 config.json。
+/// 保存主题偏好：持久化到 config.json，并广播 theme-changed 让所有窗口
+/// （主窗口 + 悬浮条）同步切换。`app.emit` 是全局广播，但发起切换的窗口
+/// 自身的 theme store 已即时 apply，收到事件再 apply 一次幂等无副作用。
 #[tauri::command]
-pub fn save_theme(theme: String) -> Result<(), String> {
+pub fn save_theme(app: AppHandle, theme: String) -> Result<(), String> {
     if !matches!(theme.as_str(), "system" | "dark" | "light") {
         return Err(format!("invalid theme: {theme}"));
     }
-    config::save_theme(&theme).map_err(|e| e.to_string())
+    config::save_theme(&theme).map_err(|e| e.to_string())?;
+    let _ = app.emit("theme-changed", theme);
+    Ok(())
 }
 
 /// 给后台拉取线程用的内部广播：拉取完成后向所有窗口发 `services-updated`。
