@@ -72,6 +72,7 @@ pnpm tauri dev        # 桌面 dev（热重载）
 pnpm build:tauri      # ★ 打包发布（自动处理 cargo PATH，见下）
 pnpm sync-version     # 手动同步版本号（build 前会自动跑）
 pnpm check            # svelte-check 类型检查
+node scripts/encrypt-keys.mjs  # API Key 加密（换 key 时跑，见下「API Key 编译期注入」）
 ```
 
 ## 构建与打包
@@ -94,6 +95,25 @@ pnpm check            # svelte-check 类型检查
      Invoke-WebRequest https://win.rustup.rs/x86_64 -OutFile rustup-init.exe
      .\rustup-init.exe -y --default-toolchain stable-x86_64-pc-windows-msvc
      ```
+
+### API Key 编译期注入（重要）
+
+GLM / MiniMax 两家 key **不进 git、不由用户配置**，走编译期加密硬编码。链路：
+
+```
+keys.local.json（明文，.gitignore，仅本机）
+  └─ scripts/encrypt-keys.mjs ──► secrets.enc（密文，提交 git）
+                                   └─ build.rs（编译期）──► OUT_DIR/secrets.rs（字节数组常量）
+                                                                   └─ src/secrets.rs（运行期 XOR 解密）
+```
+
+**换 key / 换机器 / 全新 clone 时必须做**（否则 `cargo build` / `pnpm tauri dev` 报错「找不到 secrets.enc」）：
+
+1. 创建本机明文源 `src-tauri/keys.local.json`（格式 `{"glm": "...", "minimax": "..."}`）。此文件**绝不提交**，丢了只能去各家开放平台重新申请。
+2. 跑 `node scripts/encrypt-keys.mjs` 生成 `src-tauri/secrets.enc`（密文，提交）。
+3. 正常编译。
+
+> ⚠️ `keys.local.json` 是唯一明文源，务必自行安全备份（密码管理器等）。仓库里只有密文，clone 后无法反推明文——这是设计意图（安全性），但意味着明文 key 的保管责任在开发者本地。
 
 ### 打包注意
 
