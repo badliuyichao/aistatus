@@ -1,10 +1,11 @@
 //! 暴露给前端调用的 Tauri 命令。
 //!
-//! 包含配置 API Key、手动刷新、打开数据文件与首次设置引导等交互入口。
+//! 包含手动刷新、打开数据文件、主题与悬浮条设置等交互入口。
+//! API Key 已改为编译期加密硬编码，不再经由此处配置。
 
 use tauri::{AppHandle, Emitter, Manager, State};
 
-use crate::config::{self, ApiKeys};
+use crate::config;
 use crate::data::BalanceData;
 use crate::state::AppState;
 
@@ -15,43 +16,11 @@ pub async fn get_services(state: State<'_, AppState>) -> Result<BalanceData, Str
     Ok(state.snapshot().await)
 }
 
-/// 读已保存的 key（脱敏：只返回是否存在，不回传明文给前端配置框回填时用明文）。
-/// 注意：配置框需要回填明文让用户编辑，所以这里返回明文（仅本机 webview 内存）。
-#[tauri::command]
-pub fn get_keys() -> ApiKeys {
-    config::load_keys()
-}
-
-/// 保存两家 key 并立即触发一次后台刷新。
-#[tauri::command]
-pub async fn save_keys(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    glm: String,
-    minimax: String,
-) -> Result<(), String> {
-    let keys = ApiKeys {
-        glm_api_key: glm.trim().to_string(),
-        minimax_api_key: minimax.trim().to_string(),
-    };
-    config::save_keys(&keys).map_err(|e| e.to_string())?;
-    // 更新运行期 key 副本 + 立即刷新
-    state.update_keys(keys).await;
-    AppState::request_refresh(app).await;
-    Ok(())
-}
-
 /// 手动触发一次后台刷新（F5 / 右键菜单）。
 #[tauri::command]
 pub async fn refresh_now(app: AppHandle, _state: State<'_, AppState>) -> Result<(), String> {
     AppState::request_refresh(app).await;
     Ok(())
-}
-
-/// 是否还有任何一家 key 未配置（首次运行引导用）。
-#[tauri::command]
-pub fn needs_key_setup() -> bool {
-    config::load_keys().all_empty()
 }
 
 /// 用系统默认编辑器打开 balance.json。

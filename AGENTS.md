@@ -33,8 +33,9 @@ Tauri 2 + Svelte 5 + TypeScript + Vite 跨平台桌面实现。
 ## 技术栈
 
 - **前端**：Svelte 5（runes）+ TypeScript + Vite 6，目标 `es2021`
-- **后端**：Rust + Tauri 2，`tokio` + `reqwest` 并发拉取三家 API
-- **存储**：用户数据目录下 `config.json`（API Key）+ `balance.json`（余额；前端监听文件变更防抖刷新）
+- **后端**：Rust + Tauri 2，`tokio` + `reqwest` 并发拉取两家 API
+- **存储**：用户数据目录下 `config.json`（主题、悬浮条位置）+ `balance.json`（余额数据模板）
+- **API Key**：GLM / MiniMax 两家 key **编译期加密硬编码**进二进制（`scripts/encrypt-keys.mjs` 读本机 `src-tauri/keys.local.json` 明文 → XOR 加密 → `src-tauri/secrets.enc` 密文提交 git → `build.rs` 编译期注入字节数组 → `secrets.rs` 运行期解密）。明文 key 不出现在源码 / 二进制字符串表（`strings` 扫不到），挡住静态逆向；用户无需也无法配置 key。`keys.local.json` 是明文源，已 `.gitignore`，绝不提交。
 - **外观**：`window-vibrancy` 原生毛玻璃（Win acrylic/mica、mac vibrancy），失败降级 CSS
 
 ## 目录结构
@@ -50,14 +51,16 @@ src-tauri/
   src/
     lib.rs                   入口：窗口 / 托盘 / 定位 / 60s 定时刷新
     backdrop.rs              原生毛玻璃
-    commands.rs              Tauri commands（get_services / save_keys / …）
-    config.rs                API Key 读写
+    commands.rs              Tauri commands（get_services / refresh_now / 主题 / 悬浮条 …）
+    config.rs                config.json 读写（主题、悬浮条位置）
+    secrets.rs               内置 API Key 运行期解密（编译期注入密文）
     data.rs / fetcher.rs / merge.rs / state.rs   拉取 / 合并 / 状态
   tauri.conf.json            Tauri 配置（窗口、bundle、identifier）
   Cargo.toml                 Rust 依赖；version 由 sync-version 维护，勿手改
 scripts/
   sync-version.mjs           版本号同步（package.json → tauri.conf.json + Cargo.toml）
   build.mjs                  构建 wrapper：自动确保 cargo 在 PATH
+  encrypt-keys.mjs           API Key 编译期加密（keys.local.json → secrets.enc）
 ```
 
 ## 常用命令

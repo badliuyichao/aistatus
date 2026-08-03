@@ -1,4 +1,6 @@
-//! config.json 读写 —— 存放三家 API 密钥。
+//! config.json 读写 —— 存放主题偏好、悬浮条位置等用户设置。
+//!
+//! API Key 不在此文件管理（已改为编译期加密硬编码，见 secrets 模块）。
 //!
 //! 路径：跨平台用户配置目录下的 `aistatus/config.json`
 //!   - macOS: ~/Library/Application Support/aistatus/config.json
@@ -10,32 +12,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
-
-/// 两家 API 密钥。任一为空字符串表示「未配置该厂商」。
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiKeys {
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub glm_api_key: String,
-
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub minimax_api_key: String,
-}
-
-impl ApiKeys {
-    /// 是否两家都未配置（首次运行判断用）。
-    pub fn all_empty(&self) -> bool {
-        self.glm_api_key.is_empty() && self.minimax_api_key.is_empty()
-    }
-
-    pub fn has_glm(&self) -> bool {
-        !self.glm_api_key.is_empty()
-    }
-    pub fn has_minimax(&self) -> bool {
-        !self.minimax_api_key.is_empty()
-    }
-}
+use serde::Deserialize;
 
 /// 用户数据根目录：`<config_dir>/aistatus/`。
 pub fn data_dir() -> PathBuf {
@@ -52,25 +29,6 @@ pub fn config_path() -> PathBuf {
 /// balance.json 完整路径（首次运行从内嵌模板创建）。
 pub fn balance_path() -> PathBuf {
     data_dir().join("balance.json")
-}
-
-/// 读取 config.json；文件不存在或解析失败时返回空的 ApiKeys。
-pub fn load_keys() -> ApiKeys {
-    read_json_or_default::<ApiKeys>(&config_path())
-}
-
-/// 写入 config.json。自动创建父目录。
-pub fn save_keys(keys: &ApiKeys) -> std::io::Result<()> {
-    let path = config_path();
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let body = serde_json::to_string_pretty(keys)?;
-    // 先写临时文件再 rename，避免写入中途崩溃导致 config 损坏。
-    let tmp = path.with_extension("json.tmp");
-    fs::write(&tmp, body)?;
-    fs::rename(&tmp, &path)?;
-    Ok(())
 }
 
 /// 通用：读 JSON 文件，失败返回类型的 default。

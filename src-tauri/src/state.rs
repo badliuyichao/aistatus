@@ -14,17 +14,16 @@ use std::sync::Arc;
 use futures::future::join;
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::config::{self, ApiKeys};
+use crate::config;
 use crate::data::{BalanceData, FetchOutcome};
 use crate::fetcher;
 use crate::merge::merge_api_into;
+use crate::secrets;
 
 /// 编译进二进制的首次启动模板，不依赖安装目录或开发目录中的外部文件。
 const BALANCE_TEMPLATE: &str = include_str!("../resources/balance.json");
 
 pub struct AppState {
-    /// 当前 key 副本（save_keys 时更新；拉取时读，避免每次读盘）。
-    keys: tokio::sync::Mutex<ApiKeys>,
     /// 当前展示数据快照（get_services 返回它）。
     snapshot: tokio::sync::Mutex<BalanceData>,
     /// 防重入：正在拉取时为 true，新请求被丢弃。
@@ -33,8 +32,8 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(initial_keys: ApiKeys) -> Self {
-        // 启动时从 balance.json 读骨架，三家标记 loading。
+    pub fn new() -> Self {
+        // 启动时从 balance.json 读骨架，两家标记 loading。
         let mut data = load_balance_or_default();
         for svc in &mut data.services {
             svc.loading = true;
@@ -42,7 +41,6 @@ impl AppState {
         data.timestamp = Some(BalanceData::now_timestamp());
 
         Self {
-            keys: tokio::sync::Mutex::new(initial_keys),
             snapshot: tokio::sync::Mutex::new(data),
             busy: Arc::new(AtomicBool::new(false)),
         }
@@ -51,11 +49,6 @@ impl AppState {
     /// 返回当前快照（给前端初始数据）。
     pub async fn snapshot(&self) -> BalanceData {
         self.snapshot.lock().await.clone()
-    }
-
-    /// 更新运行期 key 副本。
-    pub async fn update_keys(&self, keys: ApiKeys) {
-        *self.keys.lock().await = keys;
     }
 
     /// 触发一次后台拉取。不阻塞调用方；若已在拉取则丢弃（防重入）。
@@ -73,7 +66,6 @@ impl AppState {
             return;
         }
 
-        let keys = state.keys.lock().await.clone();
         // 克隆 busy 的 Arc 到 guard，使其在 spawn 的 future 内独立持有
         let busy = state.busy.clone();
         tokio::spawn(async move {
@@ -81,7 +73,7 @@ impl AppState {
             // 放在 future 顶部，覆盖整个 do_fetch_and_emit 作用域。
             let _guard = BusyGuard(busy);
             let state = app.state::<AppState>();
-            do_fetch_and_emit(state.inner(), &keys, &app).await;
+            do_fetch_and_emit(state.inner(), &app).await;
         });
     }
 }
@@ -97,11 +89,13 @@ impl Drop for BusyGuard {
 }
 
 /// 一次完整拉取：并发两请求 → merge → 更新快照 → emit。
-async fn do_fetch_and_emit(state: &AppState, keys: &ApiKeys, app: &AppHandle) {
-    // 并发拉两家。
+///
+/// key 由 secrets 模块运行期解密提供（编译期加密注入），不再从用户配置读取。
+async fn do_fetch_and_emit(state: &AppState, app: &AppHandle) {
+    // 并发拉两家。key 在此处临时解密，用完即弃。
     let (glm, mm) = join(
-        fetcher::glm::fetch(&keys.glm_api_key),
-        fetcher::minimax::fetch(&keys.minimax_api_key),
+        fetcher::glm::fetch(&secrets::glm_key()),
+        fetcher::minimax::fetch(&secrets::minimax_key()),
     )
     .await;
 

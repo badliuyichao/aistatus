@@ -2,6 +2,10 @@
 config.json
 legacy/config.json
 
+# ── API Key 明文源（编译期加密前用，绝不提交）──
+# secrets.enc 是加密后的密文，安全，需提交；keys.local.json 是明文，禁止提交。
+src-tauri/keys.local.json
+
 # ── Node / 前端 ──
 node_modules/
 dist/

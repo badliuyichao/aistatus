@@ -90,6 +90,7 @@
 <div
   class="floatbar"
   onmousedown={startDrag}
+  oncontextmenu={(e) => e.preventDefault()}
   role="button"
   tabindex="-1"
   title="拖拽移动 · 托盘菜单「悬浮条」切换显隐"

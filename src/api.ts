@@ -3,7 +3,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { ApiKeys, BalanceData, Theme } from "./types";
+import type { BalanceData, Theme } from "./types";
 
 // ── commands（前端 → Rust）──
 
@@ -11,23 +11,8 @@ export function getServices(): Promise<BalanceData> {
   return invoke<BalanceData>("get_services");
 }
 
-export function getKeys(): Promise<ApiKeys> {
-  return invoke<ApiKeys>("get_keys");
-}
-
-export function saveKeys(
-  glm: string,
-  minimax: string
-): Promise<void> {
-  return invoke("save_keys", { glm, minimax });
-}
-
 export function refreshNow(): Promise<void> {
   return invoke("refresh_now");
-}
-
-export function needsKeySetup(): Promise<boolean> {
-  return invoke<boolean>("needs_key_setup");
 }
 
 export function openBalanceFile(): Promise<void> {

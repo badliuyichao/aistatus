@@ -1,9 +1,7 @@
 <script lang="ts">
-  // 设置对话框：主题选择 + API Key 配置。
-  // 主题：即时生效（点选即应用 + 保存），不等 Key 的"保存并刷新"。
-  // Key：保存并刷新（保存后后端立即重新拉取）。
-  import { onMount } from "svelte";
-  import { getKeys, saveKeys } from "../api";
+  // 设置对话框：仅主题选择。
+  // 主题即时生效（点选即应用 + 保存）。API Key 已改为编译期加密硬编码，
+  // 不再由用户配置，故本对话框不再有 key 输入区。
   import { theme } from "../stores/theme.svelte";
   import type { Theme } from "../types";
 
@@ -16,35 +14,6 @@
     { id: "dark", label: "暗色" },
     { id: "light", label: "浅色" },
   ];
-
-  let glm = $state("");
-  let minimax = $state("");
-  let showKeys = $state(false);
-  let saving = $state(false);
-  let error = $state("");
-
-  onMount(async () => {
-    try {
-      const keys = await getKeys();
-      glm = keys.glmApiKey;
-      minimax = keys.minimaxApiKey;
-    } catch (e) {
-      console.error("get_keys failed", e);
-    }
-  });
-
-  async function save() {
-    saving = true;
-    error = "";
-    try {
-      await saveKeys(glm, minimax);
-      onclose();
-    } catch (e) {
-      error = String(e);
-    } finally {
-      saving = false;
-    }
-  }
 
   // 按 Escape 取消（对应原生对话框行为）
   function onKeydown(e: KeyboardEvent) {
@@ -80,45 +49,8 @@
       </div>
     </div>
 
-    <div class="section">
-      <div class="section-label">API Key</div>
-      <div class="hint">
-        留空则清除该厂商的已保存配置。保存后自动刷新数据。
-      </div>
-
-      <label class="field">
-        <span class="lbl">GLM 智谱AI</span>
-        <input
-          type={showKeys ? "text" : "password"}
-          placeholder="xxxxxxxx.xxxxxxxxxxxxxxxx"
-          bind:value={glm}
-        />
-      </label>
-
-      <label class="field">
-        <span class="lbl">MiniMax</span>
-        <input
-          type={showKeys ? "text" : "password"}
-          placeholder="sk-cp-..."
-          bind:value={minimax}
-        />
-      </label>
-
-      <label class="show-toggle">
-        <input type="checkbox" bind:checked={showKeys} />
-        <span>显示 Key</span>
-      </label>
-    </div>
-
-    {#if error}
-      <div class="error">{error}</div>
-    {/if}
-
     <div class="actions">
-      <button class="btn cancel" onclick={onclose}>取消</button>
-      <button class="btn save" onclick={save} disabled={saving}>
-        {saving ? "保存中…" : "保存并刷新"}
-      </button>
+      <button class="btn done" onclick={onclose}>完成</button>
     </div>
   </div>
 </div>
@@ -182,52 +114,6 @@
     background: #2563eb;
     color: #fff;
   }
-  .hint {
-    color: var(--text-secondary);
-    font-size: 11px;
-    margin-bottom: 12px;
-    line-height: 1.5;
-  }
-  .field {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 10px;
-  }
-  .lbl {
-    width: 90px;
-    color: var(--text-primary);
-    font-size: 12px;
-    font-weight: 600;
-    flex-shrink: 0;
-  }
-  input[type="text"],
-  input[type="password"] {
-    flex: 1;
-    padding: 6px 8px;
-    border: 1px solid var(--dialog-input-border);
-    border-radius: 6px;
-    background: var(--dialog-input-bg);
-    color: var(--text-primary);
-    font-size: 12px;
-    font-family: inherit;
-  }
-  input:focus {
-    outline: none;
-    border-color: var(--dialog-input-focus);
-  }
-  .show-toggle {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    color: var(--text-secondary);
-    font-size: 11px;
-  }
-  .error {
-    color: #ff4444;
-    font-size: 11px;
-    margin-bottom: 10px;
-  }
   .actions {
     display: flex;
     justify-content: flex-end;
@@ -240,25 +126,13 @@
     cursor: pointer;
     font-family: inherit;
   }
-  .btn:disabled {
-    opacity: 0.6;
-    cursor: default;
-  }
-  .cancel {
-    border: 1px solid var(--dialog-cancel-border);
-    background: var(--dialog-cancel-bg);
-    color: var(--text-primary);
-  }
-  .cancel:hover {
-    background: var(--dialog-cancel-hover);
-  }
-  .save {
+  .done {
     border: none;
     background: #2563eb;
     color: white;
     font-weight: 600;
   }
-  .save:hover {
+  .done:hover {
     background: #1d4ed8;
   }
 </style>

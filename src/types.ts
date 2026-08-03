@@ -35,12 +35,6 @@ export interface BalanceData {
   timestamp?: number; // Unix 秒
 }
 
-// get_keys / save_keys 用
-export interface ApiKeys {
-  glmApiKey: string;
-  minimaxApiKey: string;
-}
-
 // 工具：已用百分比（与 Rust QuotaItem::percentage 一致）
 export function percentage(item: QuotaItem): number {
   if (item.total <= 0) return 0;

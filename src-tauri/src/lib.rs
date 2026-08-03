@@ -12,6 +12,7 @@ pub mod config;
 pub mod data;
 mod fetcher;
 mod merge;
+pub mod secrets;
 mod state;
 
 use std::time::Duration;
@@ -25,7 +26,6 @@ use tauri::{
 #[cfg(target_os = "macos")]
 use tauri::Rect;
 
-use config::load_keys;
 use state::AppState;
 
 /// 窗口与屏幕边缘的留白（逻辑像素；×显示器缩放换算到物理像素，保证各 DPI 下视觉间距一致）。
@@ -39,11 +39,9 @@ const MAC_EDGE_MARGIN: i32 = 20;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let initial_keys = load_keys();
-
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .manage(AppState::new(initial_keys))
+        .manage(AppState::new())
         // macOS：点红绿灯红色（关闭）不退出进程，改为隐藏窗口（常驻托盘）。
         // 真正退出只能通过托盘菜单「退出」。对齐原生 mac 后台应用行为。
         .on_window_event(|window, event| {
@@ -55,10 +53,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_services,
-            commands::get_keys,
-            commands::save_keys,
             commands::refresh_now,
-            commands::needs_key_setup,
             commands::open_balance_file,
             commands::get_theme,
             commands::save_theme,

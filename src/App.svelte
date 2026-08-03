@@ -8,7 +8,7 @@
   import TitleBar from "./components/TitleBar.svelte";
   import { services } from "./stores/services.svelte";
   import { theme } from "./stores/theme.svelte";
-  import { needsKeySetup, openBalanceFile, fitToContent } from "./api";
+  import { openBalanceFile, fitToContent } from "./api";
   import { listen } from "@tauri-apps/api/event";
   import { formatTime } from "./types";
 
@@ -57,14 +57,6 @@
     // 窗口默认隐藏，唤起前完成，无主题闪烁。
     await theme.init();
     await services.init();
-    // 首次无 key 时弹出配置框。
-    try {
-      if (await needsKeySetup()) {
-        showConfig = true;
-      }
-    } catch (e) {
-      console.error("needs_key_setup failed", e);
-    }
     // 托盘菜单「设置」→ 后端发 open-config 事件，前端打开配置对话框
     unlistenOpenConfig = await listen("open-config", () => {
       showConfig = true;
