@@ -1,6 +1,6 @@
 {
   "name": "aistatus",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "AI API 余额监控悬浮框（Tauri + Svelte 跨平台重写）",
   "type": "module",
   "license": "MIT",
