@@ -1,6 +1,8 @@
 //! config.json 读写 —— 存放主题偏好、悬浮条位置等用户设置。
 //!
 //! API Key 不在此文件管理（已改为编译期加密硬编码，见 secrets 模块）。
+//! 例外：小米 MiMo 的查询接口不接受 API Key、只认浏览器登录 Cookie，
+//! 由用户运行期粘贴配置（见 load_mimo_cookie），明文存于此文件。
 //!
 //! 路径：跨平台用户配置目录下的 `aistatus/config.json`
 //!   - macOS: ~/Library/Application Support/aistatus/config.json
@@ -87,6 +89,37 @@ fn read_config_value() -> serde_json::Value {
         .and_then(|b| serde_json::from_str(&b).ok())
         .filter(|v: &serde_json::Value| v.is_object())
         .unwrap_or_else(|| serde_json::json!({}))
+}
+
+// ── 小米 MiMo 登录 Cookie（config.json 的 mimo.cookie 字段）──
+
+/// 读 MiMo Cookie；不存在 / 损坏返回空串（表示未配置，fetcher 不发起请求）。
+///
+/// 明文存储：config.json 只落在用户本机数据目录、不进 git，与编译期加密
+/// （防 key 进分发包被 strings 提取）的威胁模型不同，无需混淆。
+pub fn load_mimo_cookie() -> String {
+    let v = read_config_value();
+    v.get("mimo")
+        .and_then(|m| m.get("cookie"))
+        .and_then(|c| c.as_str())
+        .unwrap_or("")
+        .to_string()
+}
+
+/// 写 MiMo Cookie：读-改-写（保留其他字段）+ 原子 tmp+rename。
+pub fn save_mimo_cookie(cookie: &str) -> std::io::Result<()> {
+    let path = config_path();
+    let mut value = read_config_value();
+    if let Some(obj) = value.as_object_mut() {
+        obj.insert("mimo".into(), serde_json::json!({ "cookie": cookie }));
+    }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let tmp = path.with_extension("json.tmp");
+    fs::write(&tmp, serde_json::to_string_pretty(&value)?)?;
+    fs::rename(&tmp, &path)?;
+    Ok(())
 }
 
 // ── 悬浮球窗口位置（config.json 的 floatWindow 字段，逻辑像素）──

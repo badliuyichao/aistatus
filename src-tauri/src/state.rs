@@ -4,14 +4,13 @@
 //!
 //! 拉取流程（每次 request_refresh）：
 //!   1. 若已有拉取在跑 → 直接返回
-//!   2. 并发拉两家（`futures::join`）
+//!   2. 并发拉三家（`futures::join`）
 //!   3. 读 balance.json → merge → 更新快照
 //!   4. emit `services-updated` 给前端
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use futures::future::join;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::config;
@@ -88,20 +87,29 @@ impl Drop for BusyGuard {
     }
 }
 
-/// 一次完整拉取：并发两请求 → merge → 更新快照 → emit。
+/// 一次完整拉取：并发三请求 → merge → 更新快照 → emit。
 ///
-/// key 由 secrets 模块运行期解密提供（编译期加密注入），不再从用户配置读取。
+/// GLM/MiniMax 的 key 由 secrets 模块运行期解密提供（编译期加密注入）；
+/// MiMo 的 Cookie 从 config.json 现读（用户运行期可改，60s 一轮的读文件
+/// 开销可忽略，天然拿到刚保存的新值，无需缓存失效机制）。
 async fn do_fetch_and_emit(state: &AppState, app: &AppHandle) {
-    // 并发拉两家。key 在此处临时解密，用完即弃。
-    let (glm, mm) = join(
-        fetcher::glm::fetch(&secrets::glm_key()),
-        fetcher::minimax::fetch(&secrets::minimax_key()),
-    )
-    .await;
+    // 并发拉三家。key/cookie 在此处临时取用，用完即弃。
+    // join! 宏支持任意元数（join 函数只重载到二元）；凭据需先绑定，
+    // 临时 String 内联进宏会被判跨 await 悬垂借用（宏展开为多条子语句，
+    // 不享受函数调用的临时值生命周期延长）。
+    let glm_key = secrets::glm_key();
+    let minimax_key = secrets::minimax_key();
+    let mimo_cookie = config::load_mimo_cookie();
+    let (glm, mm, mimo) = futures::join!(
+        fetcher::glm::fetch(&glm_key),
+        fetcher::minimax::fetch(&minimax_key),
+        fetcher::mimo::fetch(&mimo_cookie),
+    );
 
     let outcome = FetchOutcome {
         glm,
         minimax: mm,
+        mimo,
     };
 
     // 每次刷新都重新读用户可编辑的 balance.json。
@@ -112,8 +120,51 @@ async fn do_fetch_and_emit(state: &AppState, app: &AppHandle) {
     // 更新快照
     *state.snapshot.lock().await = data.clone();
 
+    // 悬浮条高度按 MiMo 卡片有无自适应（在 emit 前取数据，emit 会 move）
+    let has_mimo = data.services.iter().any(|s| s.name.starts_with("MiMo"));
+
     // 广播给前端
     let _ = app.emit("services-updated", data);
+
+    fit_float_window(app, has_mimo);
+}
+
+/// 悬浮条尺寸：与 tauri.conf.json 的 float 窗口保持一致；MiMo 多一行。
+const FLOAT_WIDTH: f64 = 180.0;
+const FLOAT_HEIGHT: f64 = 60.0;
+const FLOAT_HEIGHT_MIMO: f64 = 80.0;
+
+/// 悬浮条高度自适应：MiMo 卡片（可选服务）出现/消失时增减一行（60 ↔ 80）。
+///
+/// 仅高度实际变化时才动窗口。用户没拖过（无保存位置）时重新锚回平台默认角，
+/// 避免增高后底部压到任务栏（Win/Linux 底部锚定）；mac 顶部锚定，
+/// set_size 保持左上角不动即可，无需重锚。
+fn fit_float_window(app: &AppHandle, has_mimo: bool) {
+    let Some(win) = app.get_webview_window("float") else {
+        return;
+    };
+    let target = if has_mimo { FLOAT_HEIGHT_MIMO } else { FLOAT_HEIGHT };
+    let scale = win.scale_factor().unwrap_or(1.0);
+    let cur_h = win
+        .outer_size()
+        .map(|s| s.height as f64 / scale)
+        .unwrap_or(0.0);
+    if (cur_h - target).abs() < 0.5 {
+        return;
+    }
+    let _ = win.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
+        FLOAT_WIDTH, target,
+    )));
+    if config::load_float_position().is_none() {
+        #[cfg(target_os = "macos")]
+        {
+            crate::anchor_top_right(&win);
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            crate::anchor_to_bottom_right(&win);
+        }
+    }
 }
 
 /// 读 balance.json；文件缺失时从内嵌模板创建，解析失败时返回默认值。

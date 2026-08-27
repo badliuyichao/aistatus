@@ -7,6 +7,7 @@
   // 品牌图标按名称前缀匹配。
   import glmLogo from "../assets/glm.png";
   import minimaxLogo from "../assets/minimax.png";
+  import mimoLogo from "../assets/mimo.png";
 
   let { service }: { service: ServiceInfo } = $props();
 
@@ -14,6 +15,7 @@
     const n = (name || "").trim();
     if (n.startsWith("GLM")) return glmLogo;
     if (n.startsWith("MiniMax")) return minimaxLogo;
+    if (n.startsWith("MiMo")) return mimoLogo;
     return null;
   }
 

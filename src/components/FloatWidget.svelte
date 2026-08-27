@@ -1,13 +1,19 @@
 <script lang="ts">
-  // 悬浮条：长方形小窗，两条进度条分别显示 GLM / MiniMax 的「5小时限额」已用%。
+  // 悬浮条：长方形小窗，进度条分别显示 GLM / MiniMax 的「5小时限额」已用%
+  // 与 MiMo 的「Token Plan 套餐」已用%。
   //
   // 与主窗口共用同一份 index.html，经 main.ts 按 webview label 分流挂载。
   // 复用 services store（自动收 services-updated 广播）和 theme store（跟随主题）。
   //
-  // 数据来源：只取每家 items 里 label === "5小时限额" 的配额项。
-  //   - item.used 已是 0–100 的「已用百分比」，total=100，故进度条宽度直接用 used。
+  // 数据来源：GLM / MiniMax 取 items 里 label === "5小时限额" 的配额项，
+  // MiMo 取 label === "Token Plan 套餐"。
+  //   - GLM / MiniMax：item.used 已是 0–100 的「已用百分比」，total=100，进度条宽度直接用 used。
+  //   - MiMo：item.used / total 是**原始额度**（如 893M / 4.1B，非百分比），
+  //     比例需自行计算 used/total；明细（绝对值 + 已用%）放行 tooltip。
   //   - item.displayValue === "∞" 表示该窗口未计费/不限额，进度条满格灰色 + ∞ 标记。
-  //   - 服务 loading 或找不到 5小时限额 item 时显示 N/A。
+  //   - 服务 loading 或找不到对应 item 时显示 N/A；MiMo 未配置（无卡片）整行隐藏。
+  //
+  // 窗口高度由后端 fit_float_window 按是否有 MiMo 卡片自适应（60 ↔ 80 逻辑像素）。
 
   import { onMount } from "svelte";
   import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -51,10 +57,23 @@
 
   const glm = $derived(findService("GLM"));
   const mm = $derived(findService("MiniMax"));
+  const mimo = $derived(findService("MiMo"));
   const glmItem = $derived(fiveHour(glm));
   const mmItem = $derived(fiveHour(mm));
   const glmPct = $derived(usedPct(glmItem));
   const mmPct = $derived(usedPct(mmItem));
+  // MiMo 的 Token Plan 套餐项；loading 时 undefined（显示 —）。
+  const mimoItem = $derived(
+    mimo && !mimo.loading
+      ? mimo.items.find((it) => it.label === "Token Plan 套餐")
+      : undefined
+  );
+  // MiMo 的 used/total 是原始额度（非百分比），比例自行计算；total<=0 视为无数据。
+  const mimoPct = $derived(
+    mimoItem && mimoItem.total > 0
+      ? Math.max(0, Math.min(100, (mimoItem.used / mimoItem.total) * 100))
+      : null
+  );
 
   /** 启动拖拽（Tauri 原生窗口拖动）。 */
   function startDrag(e: MouseEvent) {
@@ -130,10 +149,25 @@
       {/if}
     </span>
   </div>
+
+  {#if mimo}
+    <div
+      class="row"
+      title="MiMo Token Plan：{mimoItem?.displayValue ?? '—'} · {mimoItem?.detail ?? '刷新中'}"
+    >
+      <span class="brand" style="color:{mimo.color || '#FF6900'}">MiMo</span>
+      <div class="track">
+        {#if mimoPct !== null}
+          <div class="fill" style="width:{mimoPct}%; background:{barColor(mimoPct, mimo)}"></div>
+        {/if}
+      </div>
+      <span class="pct">{mimoPct === null ? "—" : `${Math.round(mimoPct)}%`}</span>
+    </div>
+  {/if}
 </div>
 
 <style>
-  /* 220×96 webview；body 已透明（见 app.css），卡片自身做半透明质感。 */
+  /* 180 宽、高 60/80（后端按 MiMo 卡片有无自适应）；body 已透明（见 app.css），卡片自身做半透明质感。 */
   .floatbar {
     width: 100vw;
     height: 100vh;

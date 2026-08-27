@@ -59,6 +59,8 @@ pub fn run() {
             commands::save_theme,
             commands::save_float_position,
             commands::set_float_visible,
+            commands::get_mimo_cookie,
+            commands::save_mimo_cookie,
             fit_to_content,
         ])
         .setup(|app| {

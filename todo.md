@@ -72,6 +72,17 @@ pnpm tauri dev
 3. 托盘菜单「悬浮球」项切换显隐且勾选态同步。
 4. 60s 刷新后数字与颜色随 GLM/MiniMax 最低余量更新。
 
+### [ ] 7. macOS：悬浮条高度自适应（fit_float_window）实测
+
+**背景**：悬浮条新增 MiMo 行后，`state.rs::fit_float_window` 每次刷新后按 MiMo 卡片有无调整高度（60 ↔ 80 逻辑像素）。平台差异：Win/Linux 底部锚定，增高后重锚右下角防压任务栏（**Windows 已实测**：窗口 270×120 物理、底部距任务栏 31px）；mac 走 `anchor_top_right` 重锚分支，本机无法验证。
+**验证/操作方法**（在 mac 上）：
+```bash
+pnpm tauri dev
+# 配置 MiMo Cookie 后观察：悬浮条增高到 80 且出现第三行；清 Cookie 后回落 60
+# 增高后窗口顶部应仍贴菜单栏下方，不应下坠盖住桌面图标
+```
+**完成判据**：mac 上高度切换正常、顶部锚定不漂移，未配置 MiMo 时窗口保持 60 高。
+
 ---
 
 ## 🧹 其他待办（非阻塞）
@@ -87,3 +98,9 @@ pnpm tauri dev
 **背景**：identifier 从 `com.aistatus.app` 改为 `com.aistatus.desktop`，新版是不同 Windows 产品，不会覆盖旧版。
 **操作**：若之前装过旧版 setup，到「设置 → 应用」卸载 `AI余额监控`（旧 product code），避免两份共存。
 **完成判据**：系统只剩 `com.aistatus.desktop` 一份。
+
+### [ ] 7. （可选）MiMo Cookie 失效的托盘气泡提醒
+
+**背景**：2026-08-26 接入小米 MiMo Token Plan 用量查询（运行期 Cookie 配置）。Cookie 过期后目前仅在卡片内显示「Cookie 已失效」占位条，用户不看主窗口时无感知。
+**操作**：`fetcher/mimo.rs` 检测到 401/403 或业务 code 非 0 时，经托盘发一次系统通知（需去重，避免 60s 刷新重复轰炸）。
+**完成判据**：Cookie 失效后收到一次托盘通知，且同一失效期内不重复提示。

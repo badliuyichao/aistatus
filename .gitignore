@@ -26,3 +26,6 @@ __pycache__/
 build/
 *.dmg
 *.app
+
+# ZCode 工作区本地状态（会话计划等）
+.zcode/

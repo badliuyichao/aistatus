@@ -1,7 +1,8 @@
 //! 暴露给前端调用的 Tauri 命令。
 //!
 //! 包含手动刷新、打开数据文件、主题与悬浮条设置等交互入口。
-//! API Key 已改为编译期加密硬编码，不再经由此处配置。
+//! API Key 已改为编译期加密硬编码，不再经由此处配置；
+//! 例外：MiMo 的登录 Cookie 接口不接受 API Key，由此处运行期配置。
 
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -77,4 +78,111 @@ pub fn set_float_visible(app: AppHandle, visible: bool) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+// ── MiMo Cookie（运行期配置）──
+
+/// 读 MiMo Cookie（设置对话框回显用）。空串表示未配置。
+#[tauri::command]
+pub fn get_mimo_cookie() -> String {
+    config::load_mimo_cookie()
+}
+
+/// 保存 MiMo Cookie：宽容清洗 → 持久化到 config.json → 立即触发刷新验证。
+/// 清洗后为空串表示清除配置（未配置时主界面不显示 MiMo 卡片）。
+#[tauri::command]
+pub async fn save_mimo_cookie(app: AppHandle, cookie: String) -> Result<(), String> {
+    let normalized = normalize_cookie(&cookie);
+    config::save_mimo_cookie(&normalized).map_err(|e| e.to_string())?;
+    AppState::request_refresh(app).await;
+    Ok(())
+}
+
+/// 宽容清洗用户粘贴的 Cookie 输入。
+///
+/// 接受三种从浏览器 DevTools 复制的形态：
+///   1. 纯 Cookie 值：`a=1; b=2`
+///   2. 带请求头前缀：`Cookie: a=1; b=2`
+///   3. cURL 命令整段：`curl 'https://…' -H 'Cookie: a=1; b=2' …`
+/// 换行折叠、分号间距统一（DevTools「复制值」有时带换行）。
+/// cookie 值内不会出现分号（RFC 6265），按分号切分安全。
+pub(crate) fn normalize_cookie(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    let extracted: String = if let Some(rest) = strip_leading_cookie_header(trimmed) {
+        rest.to_string()
+    } else if let Some(v) = extract_cookie_from_curl(trimmed) {
+        v
+    } else {
+        trimmed.to_string()
+    };
+
+    extracted
+        .split([';', '\r', '\n'])
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+/// 行首 `Cookie:` 前缀（大小写不敏感）→ 去掉前缀返回余下值。
+fn strip_leading_cookie_header(s: &str) -> Option<&str> {
+    if s.len() >= 7 && s[..7].eq_ignore_ascii_case("cookie:") {
+        Some(s[7..].trim_start())
+    } else {
+        None
+    }
+}
+
+/// cURL 整段中提取 Cookie 头的值：定位最后一个 `cookie:`（不区分大小写），
+/// 取到闭合引号或串尾。rfind 避开 URL 中恰好含 "cookie:" 的极端情况
+/// （header 一定在 URL 之后）。
+fn extract_cookie_from_curl(s: &str) -> Option<String> {
+    let lower = s.to_lowercase();
+    let idx = lower.rfind("cookie:")?;
+    let rest = &s[idx + "cookie:".len()..];
+    let end = rest.find(['\'', '"']).unwrap_or(rest.len());
+    Some(rest[..end].trim().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_cookie;
+
+    #[test]
+    fn normalize_plain_value() {
+        assert_eq!(normalize_cookie("a=1; b=2"), "a=1; b=2");
+    }
+
+    #[test]
+    fn normalize_strips_header_prefix() {
+        assert_eq!(normalize_cookie("Cookie: a=1; b=2"), "a=1; b=2");
+        assert_eq!(normalize_cookie("cookie: a=1"), "a=1");
+        assert_eq!(normalize_cookie("COOKIE: a=1"), "a=1");
+    }
+
+    #[test]
+    fn normalize_extracts_from_curl() {
+        let curl = "curl 'https://platform.xiaomimimo.com/api/v1/tokenPlan/usage' \
+                    -H 'Accept: application/json' \
+                    -H 'Cookie: sid=abc; token=xyz'";
+        assert_eq!(normalize_cookie(curl), "sid=abc; token=xyz");
+    }
+
+    #[test]
+    fn normalize_folds_newlines_and_spacing() {
+        assert_eq!(normalize_cookie("a=1;\r\nb=2"), "a=1; b=2");
+        assert_eq!(normalize_cookie("a=1 ;  b=2 ;"), "a=1; b=2");
+        assert_eq!(normalize_cookie("a=1 ;\n\n b=2"), "a=1; b=2");
+    }
+
+    #[test]
+    fn normalize_empty_clears() {
+        assert_eq!(normalize_cookie(""), "");
+        assert_eq!(normalize_cookie("   \n  "), "");
+        assert_eq!(normalize_cookie("Cookie:"), "");
+    }
 }

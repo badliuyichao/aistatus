@@ -168,9 +168,37 @@ pub struct MinimaxResult {
     pub items: Vec<QuotaItem>,
 }
 
-/// 两家拉取结果（任一为 None 表示无 key / 失败 / 无数据）。
+/// MiMo fetcher 返回的展示数据。
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MimoResult {
+    pub name: String,
+    pub r#type: String,
+    #[serde(default)]
+    pub icon: String,
+    pub color: String,
+    pub items: Vec<QuotaItem>,
+}
+
+/// MiMo 拉取的三态结果。
+///
+/// 与另两家不同：MiMo 查询接口只认浏览器登录 Cookie，由用户运行期配置，
+/// 是可选服务，因此「未配置」需与「失败」区分——
+///   - NotConfigured：未配置 Cookie → merge 删除卡片，不打扰不用的用户
+///   - Failed：网络 / HTTP 失败 → 与另两家的 None 同语义（卡片标 loading）
+///   - Ok：成功数据，或业务错误占位条（如「Cookie 已失效」提示）
+#[derive(Clone, Debug, Default)]
+pub enum MimoFetch {
+    #[default]
+    NotConfigured,
+    Failed,
+    Ok(MimoResult),
+}
+
+/// 拉取结果（glm/minimax 的 None 表示无 key / 失败 / 无数据）。
 #[derive(Clone, Debug, Default)]
 pub struct FetchOutcome {
     pub glm: Option<GlmResult>,
     pub minimax: Option<MinimaxResult>,
+    pub mimo: MimoFetch,
 }

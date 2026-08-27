@@ -1,6 +1,6 @@
 # aistatus — AI API 余额监控
 
-桌面常驻悬浮框，监控 DeepSeek / GLM 智谱 / MiniMax 三家 API 余额与配额。
+桌面常驻悬浮框，监控 GLM 智谱 / MiniMax / 小米 MiMo 三家 API 余额与配额。
 Tauri 2 + Svelte 5 + TypeScript + Vite 跨平台桌面实现。
 
 > 本文件是项目开发规范的唯一来源。`CLAUDE.md` 仅负责引用本文件，
@@ -33,10 +33,21 @@ Tauri 2 + Svelte 5 + TypeScript + Vite 跨平台桌面实现。
 ## 技术栈
 
 - **前端**：Svelte 5（runes）+ TypeScript + Vite 6，目标 `es2021`
-- **后端**：Rust + Tauri 2，`tokio` + `reqwest` 并发拉取两家 API
-- **存储**：用户数据目录下 `config.json`（主题、悬浮条位置）+ `balance.json`（余额数据模板）
+- **后端**：Rust + Tauri 2，`tokio` + `reqwest` 并发拉取三家 API
+- **存储**：用户数据目录下 `config.json`（主题、悬浮条位置、MiMo Cookie）+ `balance.json`（余额数据模板）
 - **API Key**：GLM / MiniMax 两家 key **编译期加密硬编码**进二进制（`scripts/encrypt-keys.mjs` 读本机 `src-tauri/keys.local.json` 明文 → XOR 加密 → `src-tauri/secrets.enc` 密文提交 git → `build.rs` 编译期注入字节数组 → `secrets.rs` 运行期解密）。明文 key 不出现在源码 / 二进制字符串表（`strings` 扫不到），挡住静态逆向；用户无需也无法配置 key。`keys.local.json` 是明文源，已 `.gitignore`，绝不提交。
+- **MiMo Cookie（例外，不走编译期加密）**：小米 MiMo 的用量接口（`platform.xiaomimimo.com/api/v1/tokenPlan/usage`，逆向自控制台、非官方公开 API）**不接受 API Key，只认浏览器登录 Cookie**，因此由用户**运行期配置**：设置对话框粘贴（支持纯值 / `Cookie:` 前缀 / cURL 整段三种形态，`normalize_cookie` 清洗）→ 明文存 `config.json` 的 `mimo.cookie` → 保存即触发刷新。每次刷新现读 config，无需缓存失效。Cookie 会过期，失效时卡片显示提示，需重新粘贴。明文存储是经确认的决策：config.json 只落用户本机数据目录、不进 git，与编译期加密（防 key 进分发包）的威胁模型不同。
 - **外观**：`window-vibrancy` 原生毛玻璃（Win acrylic/mica、mac vibrancy），失败降级 CSS
+
+## 品牌图标（Lobe Icons）
+
+服务商卡片图标来自 [Lobe Icons](https://github.com/lobehub/lobe-icons)（MIT，1600+ AI 品牌图标，覆盖智谱 / MiniMax / 小米 MiMo / DeepSeek / OpenAI / Claude / Qwen / Kimi 等）。**新增服务商时三步接入**：
+
+1. 到 <https://lobehub.com/icons> 搜品牌，记下 slug（如 `zhipu`、`minimax`、`xiaomimimo`）
+2. `node scripts/fetch-icon.mjs <slug> [保存名]` —— 从 unpkg 下载 640×640 light PNG 到 `src/assets/`（自动校验 PNG 魔数，unpkg 失败换 npmmirror 国内源）
+3. `ServiceCard.svelte` 的 `logo()` 加 `startsWith` 分支；`balance.json` 条目的 `icon` 字段保留 emoji 作无图兜底
+
+约定统一用 **light 单图 640×640 PNG**（现有 `glm.png` / `minimax.png` / `mimo.png` 同款，项目早期图标与该库同源）。手动下载直链：`https://unpkg.com/@lobehub/icons-static-png@latest/light/<slug>.png`（另有 `dark/`、`*-color.png`、`*-text.png` 变体；SVG 在 `@lobehub/icons-static-svg` 包的 `icons/<slug>.svg`）。图标版权归各品牌方，本工具内为指示性使用。
 
 ## 目录结构
 
@@ -51,16 +62,19 @@ src-tauri/
   src/
     lib.rs                   入口：窗口 / 托盘 / 定位 / 60s 定时刷新
     backdrop.rs              原生毛玻璃
-    commands.rs              Tauri commands（get_services / refresh_now / 主题 / 悬浮条 …）
-    config.rs                config.json 读写（主题、悬浮条位置）
+    commands.rs              Tauri commands（get_services / refresh_now / 主题 / 悬浮条 / MiMo Cookie …）
+    config.rs                config.json 读写（主题、悬浮条位置、MiMo Cookie）
     secrets.rs               内置 API Key 运行期解密（编译期注入密文）
-    data.rs / fetcher.rs / merge.rs / state.rs   拉取 / 合并 / 状态
+    data.rs / merge.rs / state.rs          数据模型 / 合并 / 状态与拉取调度
+    fetcher/                 各家 API 抓取器（glm.rs / minimax.rs / mimo.rs）
+  resources/balance.json     内嵌首启模板（GLM / MiniMax / MiMo 占位卡片）
   tauri.conf.json            Tauri 配置（窗口、bundle、identifier）
   Cargo.toml                 Rust 依赖；version 由 sync-version 维护，勿手改
 scripts/
   sync-version.mjs           版本号同步（package.json → tauri.conf.json + Cargo.toml）
   build.mjs                  构建 wrapper：自动确保 cargo 在 PATH
   encrypt-keys.mjs           API Key 编译期加密（keys.local.json → secrets.enc）
+  fetch-icon.mjs             品牌图标下载（Lobe Icons CDN → src/assets，见「品牌图标」）
 ```
 
 ## 常用命令
@@ -73,6 +87,7 @@ pnpm build:tauri      # ★ 打包发布（自动处理 cargo PATH，见下）
 pnpm sync-version     # 手动同步版本号（build 前会自动跑）
 pnpm check            # svelte-check 类型检查
 node scripts/encrypt-keys.mjs  # API Key 加密（换 key 时跑，见下「API Key 编译期注入」）
+node scripts/fetch-icon.mjs <slug> [保存名]  # 下载品牌图标（见「品牌图标」）
 ```
 
 ## 构建与打包
@@ -137,5 +152,8 @@ keys.local.json（明文，.gitignore，仅本机）
 
 - 窗口默认隐藏，托盘菜单「打开主界面」唤起；mac 关闭按钮=隐藏（常驻托盘），仅「退出」结束进程。
 - 定位：Windows 锚主屏右下角（避任务栏，逻辑像素×缩放）；mac 跟随托盘图标。
+- 悬浮条显示 GLM / MiniMax 的「5小时限额」与 MiMo 的「Token Plan 套餐」已用%；MiMo 未配置时该行隐藏。
+- 悬浮条高度随 MiMo 卡片有无自适应（60 ↔ 80 逻辑像素，`state.rs::fit_float_window`，每次刷新后调整；用户未拖过时重锚平台默认角，避免增高压到任务栏。mac 为顶部锚定，`set_size` 后左上角不动，重锚逻辑已按平台分支但未在 mac 实测）。
 - 窗口高度自适应卡片数量（`fit_to_content` command + 前端 `ResizeObserver`）。
 - 刷新：启动一次 + 每 60s 定时；F5 手动刷新；编辑 `balance.json` 也会触发刷新。
+- MiMo 卡片是可选服务（三态）：未配置 Cookie 不显示卡片；偶发拉取失败显示 N/A；Cookie 失效显示明确提示条。MiMo 的 `QuotaItem.used/total` 是**原始额度**（非 0–100 百分比），API 的 `percent` 是 0–1 小数，展示百分比需自行换算（见 `to_quota_item` 与悬浮条 `mimoPct`）。周期重置倒计时来自 `tokenPlan/detail` 的 `currentPeriodEnd`（北京时间字符串），换算成「N天后重置」拼进 Token Plan 套餐条的 detail；该请求失败只少文案，不影响主数据。

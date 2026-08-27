@@ -1,14 +1,16 @@
-//! 两家服务商 API 抓取器。
+//! 服务商 API 抓取器。
 //!
 //! 每个 fetcher：
-//!   - 从 config.json 拿自己的 key（`has_key` 判断）
+//!   - 取得自己的凭据（GLM/MiniMax 用编译期加密的 key，MiMo 用 config.json
+//!     里用户运行期配置的 Cookie）
 //!   - 异步 HTTP 请求（`reqwest`，10s 超时）
 //!   - 解析官方响应 → 转成展示用的 ServiceInfo/QuotaItem
-//!   - 失败返回 None
+//!   - 失败返回 None / Failed / NotConfigured（见各 fetcher 的错误语义）
 //!
-//! 两家请求由共享状态模块用 `futures::join` 并发执行。
+//! 各请求由共享状态模块用 `futures::join` 并发执行。
 
 pub mod glm;
+pub mod mimo;
 pub mod minimax;
 
 use std::sync::OnceLock;

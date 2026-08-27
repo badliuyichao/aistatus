@@ -170,7 +170,7 @@
   <div class="ctx-menu" bind:this={menuEl} style="left:{menuX}px; top:{menuY}px">
     <button onclick={refresh}>刷新数据</button>
     <button onclick={editData}>编辑数据文件</button>
-    <button onclick={openConfig}>配置 API Key</button>
+    <button onclick={openConfig}>设置</button>
   </div>
 {/if}
 

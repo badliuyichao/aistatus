@@ -38,6 +38,19 @@ export function saveFloatPosition(x: number, y: number): Promise<void> {
   return invoke("save_float_position", { x, y });
 }
 
+// ── MiMo Cookie（运行期配置，设置对话框用）──
+
+// 读当前 Cookie（空串 = 未配置），对话框打开时回显。
+export function getMimoCookie(): Promise<string> {
+  return invoke<string>("get_mimo_cookie");
+}
+
+// 保存 Cookie（后端宽容清洗 + 持久化 + 立即触发刷新验证）。
+// 传空串表示清除配置。
+export function setMimoCookie(cookie: string): Promise<void> {
+  return invoke("save_mimo_cookie", { cookie });
+}
+
 // ── events（Rust → 前端）──
 
 // 订阅后端的 services-updated 事件；返回取消订阅函数。

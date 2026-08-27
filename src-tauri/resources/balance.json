@@ -32,6 +32,13 @@
         { "label": "5小时限额", "used": 0, "total": 0, "unit": "次" },
         { "label": "周限额",   "used": 0, "total": 0, "unit": "次" }
       ]
+    },
+    {
+      "name": "MiMo",
+      "type": "quota",
+      "icon": "🧡",
+      "color": "#FF6900",
+      "items": []
     }
   ]
 }
