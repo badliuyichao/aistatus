@@ -15,7 +15,7 @@
 
 **完成判据**：首次启动后在对应系统配置目录生成有效的 `balance.json`，界面正常显示默认服务卡片。
 
-### [ ] 2. macOS 编译验证：`lib.rs` 的条件编译改动
+### [x] 2. macOS 编译验证：`lib.rs` 的条件编译改动（2026-09-01）
 
 **背景**：为消除 Windows 编译告警（unused import / unused variable），给以下两项加了 `#[cfg(target_os = "macos")]`：
 - `use tauri::Rect;`（macOS 的 `anchor_near_tray(&Rect)` 与 `rect_opt: Option<tauri::Rect>` 使用）
@@ -30,6 +30,8 @@ cargo check --manifest-path src-tauri/Cargo.toml
 pnpm build:tauri
 ```
 **完成判据**：`cargo check` 无错无 warning；`pnpm build:tauri` 正常产出 `.app`。
+
+**已完成（2026-09-01）**：新增 `.github/workflows/mac-check.yml`（GitHub Actions，macos-latest / Apple Silicon），每次 push 到 main / V2 / develop 自动跑 `cargo check --all-targets` + `cargo test`。首次运行（run #1，commit a9ce39a）全步骤通过：cargo check 86s、cargo test 87s，全部单测在 mac 上通过。`use tauri::Rect` / `let handle` 两项 cfg 改动在真 mac 编译器下确认无告警。此后该项由 CI 持续兜底，无需单独关注；`pnpm build:tauri` 出 `.app` 包仍需真机验证（运行时行为不在 CI 范围，见第 6/7 条）。
 
 ### [ ] 3. macOS / Linux：`build.mjs` 的 `findToolchainBin` 兜底实测
 
