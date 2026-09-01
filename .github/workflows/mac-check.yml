@@ -1,0 +1,61 @@
+# macOS 编译与测试验证（todo.md #2 的 CI 化）。
+#
+# 背景：本机为 Windows，所有 #[cfg(target_os = "macos")] 分支只验证过
+# 「Windows 上编译不出告警」，从未在 mac 上真正编译过。本 workflow 在
+# GitHub 云端 mac（公开仓库免费）上跑 cargo check + cargo test，每次推送
+# 自动确认 mac 侧代码可编译、单测通过；红叉时点进日志即可定位 mac 特有错误。
+#
+# 关键点：
+#   - secrets.enc 密文已提交 git，云端 clone 后无需任何 key 即可编译
+#     （编译期加密设计的红利，见 AGENTS.md「API Key 编译期注入」）。
+#   - 必须先 pnpm build 产出 dist/：Tauri 的 generate_context! 宏在编译期
+#     要嵌入 frontendDist（../dist），缺失则 cargo check 直接失败。
+#   - rust-cache 缓存编译产物，第二次起约 3~5 分钟（首次全量 10~15 分钟）。
+#   - macOS runner 按 10 倍分钟计费，公开仓库免费；私有仓库注意 2000 分钟/月
+#     免费额度实际只够约 200 分钟 mac 时间。
+
+name: mac-check
+
+on:
+  push:
+    branches: [main, V2, develop]
+  pull_request:
+    branches: [main, V2, develop]
+
+jobs:
+  mac:
+    runs-on: macos-latest # Apple Silicon（aarch64），与多数现代 Mac 一致
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend (dist needed by Tauri macro)
+        run: pnpm build
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Cargo check (mac compile verification)
+        run: cargo check --manifest-path src-tauri/Cargo.toml --all-targets
+
+      - name: Cargo test
+        run: cargo test --manifest-path src-tauri/Cargo.toml
