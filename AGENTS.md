@@ -111,6 +111,22 @@ node scripts/fetch-icon.mjs <slug> [保存名]  # 下载品牌图标（见「品
      Invoke-WebRequest https://win.rustup.rs/x86_64 -OutFile rustup-init.exe
      .\rustup-init.exe -y --default-toolchain stable-x86_64-pc-windows-msvc
      ```
+4. **手工跑 cargo 命令时（`cargo check` / `cargo test`）要显式指定 msvc，且把它所在目录加进 PATH**：
+   ```bash
+   export PATH="$HOME/.rustup/toolchains/stable-x86_64-pc-windows-msvc/bin:$PATH"
+   cargo test
+   ```
+   两个独立坑，症状不同：
+   - **默认工具链是 gnu**：`~/.cargo/bin/cargo.exe`（rustup 代理）按 default 解析，而本机
+     default 指向 `stable-x86_64-pc-windows-gnu`，直接 `cargo test` 会以第 1 条的
+     `error: export ordinal too large: 117286` 链接失败；用上面的 PATH 才会解析到 msvc。
+   - **`rustc` 不在 PATH**：`embed-resource` 的构建脚本会 `Command::new("rustc")` 取版本，
+     用绝对路径调 cargo.exe 时 rustc 找不到，构建脚本 panic
+     `couldn't get rustc version: CouldNotExecuteCommand(... program not found)`。
+     只要 `build.rs`（或依赖的构建脚本）需要重新编译就会暴露，改过 build.rs 后尤甚。
+
+> ⚠️ 「用 `&&` 串联 + `| tail` 看输出」时，cargo 失败也会被 `tail` 吞掉退出码，看起来像成功。
+> 检查请用 `cargo check; echo $?`，或 `&& echo "exit=$?"` 之前不要接管道。
 
 ### API Key 编译期注入（重要）
 
