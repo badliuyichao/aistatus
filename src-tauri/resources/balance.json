@@ -39,6 +39,16 @@
       "icon": "🧡",
       "color": "#FF6900",
       "items": []
+    },
+    {
+      "name": "DeepSeek",
+      "type": "balance",
+      "icon": "🐳",
+      "color": "#4D6BFE",
+      "balance": 0,
+      "currency": "¥",
+      "unit": "元",
+      "detail": ""
     }
   ]
 }

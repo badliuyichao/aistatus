@@ -8,6 +8,7 @@
   import glmLogo from "../assets/glm.png";
   import minimaxLogo from "../assets/minimax.png";
   import mimoLogo from "../assets/mimo.png";
+  import deepseekLogo from "../assets/deepseek.png";
 
   let { service }: { service: ServiceInfo } = $props();
 
@@ -16,6 +17,7 @@
     if (n.startsWith("GLM")) return glmLogo;
     if (n.startsWith("MiniMax")) return minimaxLogo;
     if (n.startsWith("MiMo")) return mimoLogo;
+    if (n.startsWith("DeepSeek")) return deepseekLogo;
     return null;
   }
 

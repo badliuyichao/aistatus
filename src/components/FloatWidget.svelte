@@ -1,19 +1,24 @@
 <script lang="ts">
   // 悬浮条：长方形小窗，进度条分别显示 GLM / MiniMax 的「5小时限额」已用%
-  // 与 MiMo 的「Token Plan 套餐」已用%。
+  // 与 MiMo 的「Token Plan 套餐」已用%；DeepSeek 为余额型，显示账户余额金额。
   //
   // 与主窗口共用同一份 index.html，经 main.ts 按 webview label 分流挂载。
   // 复用 services store（自动收 services-updated 广播）和 theme store（跟随主题）。
   //
   // 数据来源：GLM / MiniMax 取 items 里 label === "5小时限额" 的配额项，
-  // MiMo 取 label === "Token Plan 套餐"。
+  // MiMo 取 label === "Token Plan 套餐"，DeepSeek 取 type === "balance" 的卡片。
   //   - GLM / MiniMax：item.used 已是 0–100 的「已用百分比」，total=100，进度条宽度直接用 used。
   //   - MiMo：item.used / total 是**原始额度**（如 893M / 4.1B，非百分比），
   //     比例需自行计算 used/total；明细（绝对值 + 已用%）放行 tooltip。
   //   - item.displayValue === "∞" 表示该窗口未计费/不限额，进度条满格灰色 + ∞ 标记。
-  //   - 服务 loading 或找不到对应 item 时显示 N/A；MiMo 未配置（无卡片）整行隐藏。
+  //   - DeepSeek：纯 prepaid 按量计费，没有「已用百分比」的语义（无分母可算），
+  //     进度条无意义 → 该行不放进度条，右对齐显示余额金额；
+  //     金额按余额阈值着色（红 <10 / 黄 <50），一眼看出余额健康度，
+  //     明细（充值/赠送拆分、错误提示）放行 tooltip。
+  //   - 服务 loading 或找不到对应 item 时显示 N/A；被设置对话框隐藏的服务
+  //     不会出现在数据里（后端按 visiblePlans 过滤），整行不渲染。
   //
-  // 窗口高度由后端 fit_float_window 按是否有 MiMo 卡片自适应（60 ↔ 80 逻辑像素）。
+  // 窗口高度由后端 fit_float_window 按可见行数自适应（40/60/80/100 逻辑像素）。
 
   import { onMount } from "svelte";
   import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -75,6 +80,31 @@
       : null
   );
 
+  // DeepSeek 余额卡片（balance 型；后端 merge 保证 items 恒空、金额在 balance 字段）。
+  const ds = $derived(
+    services.data.services.find(
+      (s) => s.name.startsWith("DeepSeek") && s.type === "balance"
+    )
+  );
+
+  /** 金额格式化：千分位 + 固定两位小数（与主窗口 BalanceView 一致）。 */
+  function fmtAmount(v: number): string {
+    return v.toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  }
+
+  /**
+   * 余额状态色：红 <10（即将耗尽）/ 黄 10–50（偏低）/ 其余正文色。
+   * 阈值按 CNY 余额的经验值定；USD 等外币账户会偏严（阈值未折算），仅影响颜色。
+   */
+  function amountColor(balance: number): string {
+    if (balance < 10) return "#ef4444"; // 红：即将耗尽
+    if (balance < 50) return "#f59e0b"; // 黄：偏低
+    return "var(--text-primary, #1e2433)";
+  }
+
   /** 启动拖拽（Tauri 原生窗口拖动）。 */
   function startDrag(e: MouseEvent) {
     e.preventDefault();
@@ -114,41 +144,45 @@
   tabindex="-1"
   title="拖拽移动 · 托盘菜单「悬浮条」切换显隐"
 >
-  <div class="row">
-    <span class="brand" style="color:{glm?.color || '#888'}">GLM</span>
-    <div class="track">
-      {#if glmPct === null && glmItem?.displayValue === "∞"}
-        <div class="fill infinite" style="width:100%"></div>
-      {:else if glmPct !== null}
-        <div class="fill" style="width:{glmPct}%; background:{barColor(glmPct, glm)}"></div>
-      {/if}
+  {#if glm}
+    <div class="row">
+      <span class="brand" style="color:{glm.color || '#888'}">GLM</span>
+      <div class="track">
+        {#if glmPct === null && glmItem?.displayValue === "∞"}
+          <div class="fill infinite" style="width:100%"></div>
+        {:else if glmPct !== null}
+          <div class="fill" style="width:{glmPct}%; background:{barColor(glmPct, glm)}"></div>
+        {/if}
+      </div>
+      <span class="pct">
+        {#if glmPct === null}
+          {glmItem?.displayValue ?? "—"}
+        {:else}
+          {Math.round(glmPct)}%
+        {/if}
+      </span>
     </div>
-    <span class="pct">
-      {#if glmPct === null}
-        {glmItem?.displayValue ?? "—"}
-      {:else}
-        {Math.round(glmPct)}%
-      {/if}
-    </span>
-  </div>
+  {/if}
 
-  <div class="row">
-    <span class="brand" style="color:{mm?.color || '#888'}">MiniMax</span>
-    <div class="track">
-      {#if mmPct === null && mmItem?.displayValue === "∞"}
-        <div class="fill infinite" style="width:100%"></div>
-      {:else if mmPct !== null}
-        <div class="fill" style="width:{mmPct}%; background:{barColor(mmPct, mm)}"></div>
-      {/if}
+  {#if mm}
+    <div class="row">
+      <span class="brand" style="color:{mm.color || '#888'}">MiniMax</span>
+      <div class="track">
+        {#if mmPct === null && mmItem?.displayValue === "∞"}
+          <div class="fill infinite" style="width:100%"></div>
+        {:else if mmPct !== null}
+          <div class="fill" style="width:{mmPct}%; background:{barColor(mmPct, mm)}"></div>
+        {/if}
+      </div>
+      <span class="pct">
+        {#if mmPct === null}
+          {mmItem?.displayValue ?? "—"}
+        {:else}
+          {Math.round(mmPct)}%
+        {/if}
+      </span>
     </div>
-    <span class="pct">
-      {#if mmPct === null}
-        {mmItem?.displayValue ?? "—"}
-      {:else}
-        {Math.round(mmPct)}%
-      {/if}
-    </span>
-  </div>
+  {/if}
 
   {#if mimo}
     <div
@@ -162,6 +196,18 @@
         {/if}
       </div>
       <span class="pct">{mimoPct === null ? "—" : `${Math.round(mimoPct)}%`}</span>
+    </div>
+  {/if}
+
+  {#if ds}
+    <div
+      class="row balance-row"
+      title="DeepSeek 余额：{ds.loading ? '刷新中' : `${ds.currency}${fmtAmount(ds.balance)}`}{ds.detail ? ` · ${ds.detail}` : ''}"
+    >
+      <span class="brand" style="color:{ds.color || '#4D6BFE'}">DeepSeek</span>
+      <span class="amount" style="color:{ds.loading ? 'var(--text-muted)' : amountColor(ds.balance)}">
+        {ds.loading ? "—" : `${ds.currency}${fmtAmount(ds.balance)}`}
+      </span>
     </div>
   {/if}
 </div>
@@ -195,6 +241,18 @@
     grid-template-columns: 46px 1fr 30px;
     align-items: center;
     gap: 6px;
+  }
+
+  /* DeepSeek 余额行：无进度条（余额没有分母），brand 列加宽放下 8 字母，
+     金额跨满剩余空间右对齐。 */
+  .balance-row {
+    grid-template-columns: 52px 1fr;
+  }
+  .balance-row .amount {
+    text-align: right;
+    font-size: 10px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
   }
 
   .brand {

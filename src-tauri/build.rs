@@ -36,8 +36,15 @@ fn main() {
             .as_str()
             .expect("secrets.enc 缺 encMinimax"),
     );
+    // encDeepseek 是可选字段：旧版 secrets.enc 没有它（未内置 DeepSeek key），
+    // 缺失时生成空密文，运行期解出空串 → fetcher 视为 NotConfigured。
+    let enc_deepseek = payload
+        .get("encDeepseek")
+        .and_then(|v| v.as_str())
+        .map(base64_decode)
+        .unwrap_or_default();
 
-    // 生成 secrets.rs：三个 pub const 字节数组（密钥 + 两家密文）。
+    // 生成 secrets.rs：四个 pub const 字节数组（密钥 + 三家密文）。
     // 编进二进制的是数字数组字面量，不是可读字符串。
     let out_dir = env::var("OUT_DIR").unwrap();
     let dest = Path::new(&out_dir).join("secrets.rs");
@@ -45,10 +52,12 @@ fn main() {
         "// 由 build.rs 自动生成，勿手改。\n\
          pub const XOR_KEY: &[u8] = &{k};\n\
          pub const ENC_GLM: &[u8] = &{g};\n\
-         pub const ENC_MINIMAX: &[u8] = &{m};\n",
+         pub const ENC_MINIMAX: &[u8] = &{m};\n\
+         pub const ENC_DEEPSEEK: &[u8] = &{d};\n",
         k = fmt_byte_array(&key),
         g = fmt_byte_array(&enc_glm),
         m = fmt_byte_array(&enc_minimax),
+        d = fmt_byte_array(&enc_deepseek),
     );
 
     fs::write(&dest, src).expect("写 secrets.rs 失败");

@@ -1,14 +1,15 @@
 //! 服务商 API 抓取器。
 //!
 //! 每个 fetcher：
-//!   - 取得自己的凭据（GLM/MiniMax 用编译期加密的 key，MiMo 用 config.json
-//!     里用户运行期配置的 Cookie）
+//!   - 取得自己的凭据（GLM/MiniMax/DeepSeek 用编译期加密的 key，MiMo 用
+//!     config.json 里用户运行期配置的 Cookie）
 //!   - 异步 HTTP 请求（`reqwest`，10s 超时）
 //!   - 解析官方响应 → 转成展示用的 ServiceInfo/QuotaItem
 //!   - 失败返回 None / Failed / NotConfigured（见各 fetcher 的错误语义）
 //!
 //! 各请求由共享状态模块用 `futures::join` 并发执行。
 
+pub mod deepseek;
 pub mod glm;
 pub mod mimo;
 pub mod minimax;
@@ -16,7 +17,7 @@ pub mod minimax;
 use std::sync::OnceLock;
 use std::time::Duration;
 
-/// 全局共享的 reqwest 客户端（连接池复用，避免每次刷新重建 3 个 client）。
+/// 全局共享的 reqwest 客户端（连接池复用，避免每次刷新重建 4 个 client）。
 ///
 /// 用 OnceLock 实现进程级单例：
 ///   - 复用 TLS 会话 / keep-alive 连接，减少重复握手

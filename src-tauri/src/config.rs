@@ -65,24 +65,29 @@ pub fn load_theme() -> String {
     }
 }
 
-/// 写主题偏好：读-改-写（保留 API key 等其他字段）+ 原子 tmp+rename。
+/// 写主题偏好：读-改-写（保留其他字段）+ 原子 tmp+rename。
 pub fn save_theme(theme: &str) -> std::io::Result<()> {
+    write_config_value("theme", serde_json::json!(theme))
+}
+
+/// 通用：读-改-写 config.json 的一个顶层字段（保留其他字段）+ 原子 tmp+rename。
+fn write_config_value(key: &str, value: serde_json::Value) -> std::io::Result<()> {
     let path = config_path();
-    let mut value = read_config_value();
-    if let Some(obj) = value.as_object_mut() {
-        obj.insert("theme".into(), serde_json::json!(theme));
+    let mut root = read_config_value();
+    if let Some(obj) = root.as_object_mut() {
+        obj.insert(key.into(), value);
     }
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
     let tmp = path.with_extension("json.tmp");
-    fs::write(&tmp, serde_json::to_string_pretty(&value)?)?;
+    fs::write(&tmp, serde_json::to_string_pretty(&root)?)?;
     fs::rename(&tmp, &path)?;
     Ok(())
 }
 
 /// 读 config.json 为 serde_json::Value；不存在 / 损坏 / 非 object 返回空 object。
-/// 供 theme 的读-改-写用，与 load_keys 的强类型解析互不干扰。
+/// 供各字段的读-改-写用。
 fn read_config_value() -> serde_json::Value {
     fs::read_to_string(config_path())
         .ok()
@@ -108,18 +113,7 @@ pub fn load_mimo_cookie() -> String {
 
 /// 写 MiMo Cookie：读-改-写（保留其他字段）+ 原子 tmp+rename。
 pub fn save_mimo_cookie(cookie: &str) -> std::io::Result<()> {
-    let path = config_path();
-    let mut value = read_config_value();
-    if let Some(obj) = value.as_object_mut() {
-        obj.insert("mimo".into(), serde_json::json!({ "cookie": cookie }));
-    }
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let tmp = path.with_extension("json.tmp");
-    fs::write(&tmp, serde_json::to_string_pretty(&value)?)?;
-    fs::rename(&tmp, &path)?;
-    Ok(())
+    write_config_value("mimo", serde_json::json!({ "cookie": cookie }))
 }
 
 // ── 悬浮球窗口位置（config.json 的 floatWindow 字段，逻辑像素）──
@@ -135,19 +129,47 @@ pub fn load_float_position() -> Option<(f64, f64)> {
 
 /// 写悬浮球位置：读-改-写（保留其他字段）+ 原子 tmp+rename。
 pub fn save_float_position(x: f64, y: f64) -> std::io::Result<()> {
-    let path = config_path();
-    let mut value = read_config_value();
-    if let Some(obj) = value.as_object_mut() {
-        obj.insert(
-            "floatWindow".into(),
-            serde_json::json!({ "x": x, "y": y }),
-        );
+    write_config_value(
+        "floatWindow",
+        serde_json::json!({ "x": x, "y": y }),
+    )
+}
+
+// ── 看板可见的 Coding Plan（config.json 的 visiblePlans 字段）──
+//
+// 存服务商稳定 ID（glm / minimax / mimo / deepseek），不存卡片显示名——
+// GLM 的显示名带套餐后缀会变，稳定 ID 与 merge.rs 的名称匹配规则一一对应。
+// 「至少一个」的校验在 save 入口（commands::save_visible_plans）；
+// 这里对手改文件的兜底策略是：缺失 / 空 / 全非法 → 回退为全部显示。
+
+/// 支持的服务商稳定 ID。前端勾选项与后端过滤都以此为唯一标识。
+pub const ALL_PLAN_IDS: [&str; 4] = ["glm", "minimax", "mimo", "deepseek"];
+
+/// 读看板可见的服务 ID 列表（已去重保序）。
+/// 字段缺失 / 空 / 全非法时返回全部四家（默认全显示）。
+pub fn load_visible_plans() -> Vec<String> {
+    let raw: Vec<String> = read_config_value()
+        .get("visiblePlans")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str())
+                .map(|s| s.trim().to_lowercase())
+                .filter(|s| ALL_PLAN_IDS.contains(&s.as_str()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut seen = std::collections::HashSet::new();
+    let ids: Vec<String> = raw.into_iter().filter(|s| seen.insert(s.clone())).collect();
+    if ids.is_empty() {
+        ALL_PLAN_IDS.iter().map(|s| s.to_string()).collect()
+    } else {
+        ids
     }
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let tmp = path.with_extension("json.tmp");
-    fs::write(&tmp, serde_json::to_string_pretty(&value)?)?;
-    fs::rename(&tmp, &path)?;
-    Ok(())
+}
+
+/// 写看板可见的服务 ID 列表：读-改-写（保留其他字段）+ 原子 tmp+rename。
+/// 非空校验由调用方负责（commands::save_visible_plans）。
+pub fn save_visible_plans(ids: &[String]) -> std::io::Result<()> {
+    write_config_value("visiblePlans", serde_json::json!(ids))
 }

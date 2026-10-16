@@ -16,7 +16,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use crate::config;
 use crate::data::{BalanceData, FetchOutcome};
 use crate::fetcher;
-use crate::merge::merge_api_into;
+use crate::merge::{filter_visible_plans, merge_api_into, plan_id_of};
 use crate::secrets;
 
 /// 编译进二进制的首次启动模板，不依赖安装目录或开发目录中的外部文件。
@@ -87,29 +87,33 @@ impl Drop for BusyGuard {
     }
 }
 
-/// 一次完整拉取：并发三请求 → merge → 更新快照 → emit。
+/// 一次完整拉取：并发四请求 → merge → 更新快照 → emit。
 ///
-/// GLM/MiniMax 的 key 由 secrets 模块运行期解密提供（编译期加密注入）；
+/// GLM/MiniMax/DeepSeek 的 key 由 secrets 模块运行期解密提供（编译期加密注入；
+/// DeepSeek 未内置 key 时为空串，fetcher 返回 NotConfigured 不出卡片）；
 /// MiMo 的 Cookie 从 config.json 现读（用户运行期可改，60s 一轮的读文件
 /// 开销可忽略，天然拿到刚保存的新值，无需缓存失效机制）。
 async fn do_fetch_and_emit(state: &AppState, app: &AppHandle) {
-    // 并发拉三家。key/cookie 在此处临时取用，用完即弃。
+    // 并发拉四家。key/cookie 在此处临时取用，用完即弃。
     // join! 宏支持任意元数（join 函数只重载到二元）；凭据需先绑定，
     // 临时 String 内联进宏会被判跨 await 悬垂借用（宏展开为多条子语句，
     // 不享受函数调用的临时值生命周期延长）。
     let glm_key = secrets::glm_key();
     let minimax_key = secrets::minimax_key();
+    let deepseek_key = secrets::deepseek_key();
     let mimo_cookie = config::load_mimo_cookie();
-    let (glm, mm, mimo) = futures::join!(
+    let (glm, mm, mimo, ds) = futures::join!(
         fetcher::glm::fetch(&glm_key),
         fetcher::minimax::fetch(&minimax_key),
         fetcher::mimo::fetch(&mimo_cookie),
+        fetcher::deepseek::fetch(&deepseek_key),
     );
 
     let outcome = FetchOutcome {
         glm,
         minimax: mm,
         mimo,
+        deepseek: ds,
     };
 
     // 每次刷新都重新读用户可编辑的 balance.json。
@@ -117,33 +121,64 @@ async fn do_fetch_and_emit(state: &AppState, app: &AppHandle) {
     merge_api_into(&mut data, &outcome);
     data.timestamp = Some(BalanceData::now_timestamp());
 
-    // 更新快照
+    // 快照保留全量合并结果；可见性是展示层配置（config.json 的 visiblePlans），
+    // 只在出口（此处 emit / get_services）过滤，取消隐藏可立即用快照缓存回显。
     *state.snapshot.lock().await = data.clone();
 
-    // 悬浮条高度按 MiMo 卡片有无自适应（在 emit 前取数据，emit 会 move）
-    let has_mimo = data.services.iter().any(|s| s.name.starts_with("MiMo"));
+    let mut view = data;
+    filter_visible_plans(&mut view, &config::load_visible_plans());
+
+    // 悬浮条高度按可见行数自适应（在 emit 前取数据，emit 会 move）
+    let rows = float_row_count(&view);
 
     // 广播给前端
-    let _ = app.emit("services-updated", data);
+    let _ = app.emit("services-updated", view);
 
-    fit_float_window(app, has_mimo);
+    fit_float_window(app, rows);
 }
 
-/// 悬浮条尺寸：与 tauri.conf.json 的 float 窗口保持一致；MiMo 多一行。
-const FLOAT_WIDTH: f64 = 180.0;
-const FLOAT_HEIGHT: f64 = 60.0;
-const FLOAT_HEIGHT_MIMO: f64 = 80.0;
+/// 悬浮条可见行数：每家可见服务占一行，已被可见性配置滤掉的卡片不占行。
+fn float_row_count(data: &BalanceData) -> usize {
+    let mut rows = 0;
+    let mut seen = std::collections::HashSet::new();
+    for id in data.services.iter().filter_map(|s| plan_id_of(&s.name)) {
+        if seen.insert(id) {
+            rows += 1;
+        }
+    }
+    rows
+}
 
-/// 悬浮条高度自适应：MiMo 卡片（可选服务）出现/消失时增减一行（60 ↔ 80）。
+/// 按当前可见性配置把快照重新推给前端：显隐配置保存后立即生效，
+/// 不等下一轮拉取（60s / 手动刷新）。快照是全量的，过滤在此进行——
+/// 取消隐藏时用缓存数据即时回显，随后的 request_refresh 再补新数据。
+pub(crate) async fn reemit_visible_snapshot(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let mut view = state.snapshot().await;
+    filter_visible_plans(&mut view, &config::load_visible_plans());
+    let rows = float_row_count(&view);
+    let _ = app.emit("services-updated", view);
+    fit_float_window(app, rows);
+}
+
+/// 悬浮条尺寸：与 tauri.conf.json 的 float 窗口保持一致。
+/// 高度 = 基础 + 每可见服务一行（20 逻辑像素）：
+/// 1 行 40 / 2 行 60 / 3 行 80 / 4 行 100。
+const FLOAT_WIDTH: f64 = 180.0;
+const FLOAT_ROW_H: f64 = 20.0;
+const FLOAT_BASE_H: f64 = 20.0;
+
+/// 悬浮条高度自适应：可见服务行数变化时增减高度。
 ///
 /// 仅高度实际变化时才动窗口。用户没拖过（无保存位置）时重新锚回平台默认角，
 /// 避免增高后底部压到任务栏（Win/Linux 底部锚定）；mac 顶部锚定，
 /// set_size 保持左上角不动即可，无需重锚。
-fn fit_float_window(app: &AppHandle, has_mimo: bool) {
+fn fit_float_window(app: &AppHandle, rows: usize) {
     let Some(win) = app.get_webview_window("float") else {
         return;
     };
-    let target = if has_mimo { FLOAT_HEIGHT_MIMO } else { FLOAT_HEIGHT };
+    let rows = rows.max(1); // 防御：配置保证至少显示一家，异常数据时不缩成 0 高
+    let target = FLOAT_BASE_H + FLOAT_ROW_H * rows as f64;
     let scale = win.scale_factor().unwrap_or(1.0);
     let cur_h = win
         .outer_size()

@@ -195,10 +195,50 @@ pub enum MimoFetch {
     Ok(MimoResult),
 }
 
+/// DeepSeek fetcher 返回的展示数据（余额型，非配额型）。
+///
+/// DeepSeek 是纯 prepaid 按量计费，没有 GLM/MiniMax 那样的时间窗口配额，
+/// 也没有 MiMo 的套餐额度——只有账户余额。因此展示走 ServiceInfo 的
+/// balance 分支（大号金额 + detail 明细），`items` 恒为空。
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeepseekResult {
+    pub name: String,
+    pub r#type: String,
+    #[serde(default)]
+    pub icon: String,
+    pub color: String,
+    /// 总余额（total_balance）。
+    pub balance: f64,
+    /// 货币符号（CNY→¥ / USD→$）。
+    pub currency: String,
+    #[serde(default = "default_unit")]
+    pub unit: String,
+    /// 明细文案（充值 / 赠送拆分，或错误占位提示）。
+    pub detail: String,
+}
+
+/// DeepSeek 拉取的三态结果。
+///
+/// key 与 GLM/MiniMax 同走编译期加密注入，但属于「可选服务」：二进制里
+/// 没内置 key（如未把 deepseek 写进 keys.local.json）时不出卡片，
+/// 与 MiMo 未配置 Cookie 的语义一致——
+///   - NotConfigured：未内置 key → merge 删除卡片
+///   - Failed：网络 / HTTP 失败 → 与另两家的 None 同语义（卡片标 loading）
+///   - Ok：成功数据，或明确错误占位（如 401「API Key 无效」提示）
+#[derive(Clone, Debug, Default)]
+pub enum DeepseekFetch {
+    #[default]
+    NotConfigured,
+    Failed,
+    Ok(DeepseekResult),
+}
+
 /// 拉取结果（glm/minimax 的 None 表示无 key / 失败 / 无数据）。
 #[derive(Clone, Debug, Default)]
 pub struct FetchOutcome {
     pub glm: Option<GlmResult>,
     pub minimax: Option<MinimaxResult>,
     pub mimo: MimoFetch,
+    pub deepseek: DeepseekFetch,
 }

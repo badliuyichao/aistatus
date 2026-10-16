@@ -6,6 +6,9 @@
 //
 // 用法：node scripts/encrypt-keys.mjs
 //
+// deepseek 为可选字段：暂未把 DeepSeek key 放进 keys.local.json 时可缺省，
+// 产物 secrets.enc 不含 encDeepseek，编译出的程序不显示 DeepSeek 卡片。
+//
 // 安全说明：XOR 不是密码学强加密，目的是挡住 strings / 静态扫描（提高门槛档），
 // 让明文不以可读字符串出现在二进制里。逆向高手理论上仍可还原（客户端密钥铁律）。
 // 换 key 时：改 keys.local.json 后重跑本脚本，再重新编译。
@@ -23,11 +26,11 @@ const outPath = resolve(root, "src-tauri/secrets.enc");
 
 if (!existsSync(srcPath)) {
   console.error(`✗ 找不到明文 key 源：${srcPath}`);
-  console.error("  请先创建该文件（格式 {glm, minimax}），并加入 .gitignore。");
+  console.error("  请先创建该文件（格式 {glm, minimax, deepseek?}），并加入 .gitignore。");
   process.exit(1);
 }
 
-const { glm, minimax } = JSON.parse(readFileSync(srcPath, "utf8"));
+const { glm, minimax, deepseek = "" } = JSON.parse(readFileSync(srcPath, "utf8"));
 if (!glm || !minimax) {
   console.error("✗ keys.local.json 缺少 glm 或 minimax 字段");
   process.exit(1);
@@ -47,15 +50,23 @@ const key = randomBytes(32); // 每次重新生成，密文随之变化
 const encGlm = xorEncrypt(glm, key);
 const encMinimax = xorEncrypt(minimax, key);
 
-// secrets.enc 格式：JSON，含 key/encGlm/encMinimax 的 base64。
+// secrets.enc 格式：JSON，含 key/encGlm/encMinimax/encDeepseek? 的 base64。
 // 提交此文件到 git 是安全的——只有密文与密钥，没有明文。
 const payload = {
   key: key.toString("base64"),
   encGlm: encGlm.toString("base64"),
   encMinimax: encMinimax.toString("base64"),
 };
+if (deepseek) {
+  payload.encDeepseek = xorEncrypt(deepseek, key).toString("base64");
+}
 
 writeFileSync(outPath, JSON.stringify(payload, null, 2) + "\n", "utf8");
 console.log(`✓ 已加密并写入 ${outPath}`);
 console.log(`  GLM 密文 ${encGlm.length} 字节，MiniMax 密文 ${encMinimax.length} 字节`);
+if (deepseek) {
+  console.log(`  DeepSeek 密文 ${payload.encDeepseek.length} 字节`);
+} else {
+  console.log(`  DeepSeek 未配置（keys.local.json 无 deepseek 字段），本次产物不含 DeepSeek key`);
+}
 console.log(`  该文件可安全提交 git（仅含密文）。keys.local.json 切勿提交。`);
