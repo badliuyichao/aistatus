@@ -76,14 +76,41 @@ pnpm tauri dev
 
 ### [ ] 7. macOS：悬浮条高度自适应（fit_float_window）实测
 
-**背景**：悬浮条新增 MiMo 行后，`state.rs::fit_float_window` 每次刷新后按 MiMo 卡片有无调整高度（60 ↔ 80 逻辑像素）。平台差异：Win/Linux 底部锚定，增高后重锚右下角防压任务栏（**Windows 已实测**：窗口 270×120 物理、底部距任务栏 31px）；mac 走 `anchor_top_right` 重锚分支，本机无法验证。
+**背景**：悬浮条按可见服务行数自适应高度：`state.rs::fit_float_window` 由「MiMo 有无 → 60 ↔ 80」改为「可见行数 → 基础 20 + 每行 20」（1 行 40 / 2 行 60 / 3 行 80，2026-10-14 随看板显隐配置改动泛化）。平台差异：Win/Linux 底部锚定，增高后重锚右下角防压任务栏（**Windows 已实测**：窗口 270×120 物理、底部距任务栏 31px，当时为 60/80 两态版本）；mac 走 `anchor_top_right` 重锚分支，本机无法验证。
 **验证/操作方法**（在 mac 上）：
 ```bash
 pnpm tauri dev
 # 配置 MiMo Cookie 后观察：悬浮条增高到 80 且出现第三行；清 Cookie 后回落 60
-# 增高后窗口顶部应仍贴菜单栏下方，不应下坠盖住桌面图标
+# 在设置对话框取消勾选一家：行数减少、高度回落到 40/60；增高后窗口顶部应仍贴菜单栏下方
 ```
-**完成判据**：mac 上高度切换正常、顶部锚定不漂移，未配置 MiMo 时窗口保持 60 高。
+**完成判据**：mac 上高度随可见行数切换正常、顶部锚定不漂移，单行可见时窗口保持 40 高。
+
+### [ ] 8. macOS（及 Windows GUI）：看板显隐配置（visiblePlans）实测
+
+**背景**：2026-10-14 新增设置对话框「看板显示的 Coding Plan」多选（`config.json` 的 `visiblePlans`，存稳定 ID glm/minimax/mimo，至少一个）。后端在展示层过滤（`get_services` / `services-updated` 出口），主窗口与悬浮条同步显隐；保存后重发快照即时生效并触发刷新。逻辑已由单测覆盖（merge 过滤 / normalize 校验），但 GUI 交互未做自动化实测；mac 端本机无法验证。（2026-10-15 起可选 ID 增至四家，对话框计数为「N / 4」。）
+**验证/操作方法**：
+```bash
+pnpm tauri dev   # 托盘右键 →「设置…」
+# 1. 勾选/取消各家：主窗口卡片与悬浮条行同步显隐，无残留占位
+# 2. 只剩一项时该复选框禁用（无法取消到 0）；对话框显示「N / 4」计数
+# 3. 重新勾选后卡片立即回显（缓存），1–2s 内刷新为新数据
+# 4. 重启应用：勾选状态保持（config.json 的 visiblePlans）
+# 5. 手改 config.json 为 "visiblePlans": [] → 重启应回退为全部显示
+```
+**完成判据**：上述 5 项全部符合；显隐切换时主窗口高度自适应正常、悬浮条无跳动。
+
+### [x] 10. DeepSeek 卡片真 key 验证（需先内置 key，2026-10-15）
+
+**背景**：新增 DeepSeek 余额监控（官方 `GET api.deepseek.com/user/balance` 接口，key 编译期加密注入）。本机 `keys.local.json` 尚无 `deepseek` 字段，卡片处于 NotConfigured（不出卡片），已验证的是：解析/合并单测全绿 + 无 key 时卡片正确隐藏，**真实拉取与展示未验证**。
+
+**验证/操作方法**：
+1. 到 [platform.deepseek.com](https://platform.deepseek.com) 创建 API key，加入 `src-tauri/keys.local.json`（`"deepseek": "sk-..."`）
+2. `node scripts/encrypt-keys.mjs` 重新生成 `secrets.enc`（会连 GLM/MiniMax 一起重新加密，属正常）
+3. `pnpm tauri dev`；若主窗口没出现 DeepSeek 卡片，到设置对话框勾选 DeepSeek（存量 `config.json` 的 `visiblePlans` 不含 `deepseek`，需手动勾选一次；勾选即时生效）
+
+**完成判据**：主窗口出现 DeepSeek 余额卡片（大号金额 + 「充值 ¥x · 赠送 ¥y」明细）；悬浮条底部出现 DeepSeek 金额行（余额 <10 变红）；故意改错 key 重编译后卡片显示「API Key 无效」占位。
+
+**已完成（2026-10-15）**：真实 key 已写入 `keys.local.json` 并重新加密（`secrets.enc` 含三家密文，待随下次提交进 git）。curl 直调接口 HTTP 200，响应字段与解析器逐一吻合（`is_available` / `balance_infos[].currency=CNY` / 字符串金额）；假 key 直调确认 HTTP 401（占位路径触发条件成立，映射逻辑由单测覆盖）。`pnpm tauri dev` 启动后连续多个刷新周期 `[DeepseekFetcher]` 零错误日志（该 fetcher 仅失败路径打日志）。存量 `visiblePlans` 已补 `deepseek`。注：该 key 曾在对话中明文传递，如有顾虑建议在开放平台轮换。
 
 ---
 
@@ -106,3 +133,9 @@ pnpm tauri dev
 **背景**：2026-08-26 接入小米 MiMo Token Plan 用量查询（运行期 Cookie 配置）。Cookie 过期后目前仅在卡片内显示「Cookie 已失效」占位条，用户不看主窗口时无感知。
 **操作**：`fetcher/mimo.rs` 检测到 401/403 或业务 code 非 0 时，经托盘发一次系统通知（需去重，避免 60s 刷新重复轰炸）。
 **完成判据**：Cookie 失效后收到一次托盘通知，且同一失效期内不重复提示。
+
+### [ ] 9. 发布侧：防最终产物被杀软误报（签名 / CI 构建 / 白名单申报）
+
+**背景**：2026-10-14 本机杀软（Avira 系 ML 启发式，报毒名 TR/W64.Evo）确定性误报隔离 `tauri-plugin-opener` 的 build script，已移除该插件（改直接依赖底层 `open` crate）根治本地构建问题（另加 `[profile.dev/release.build-override] debug = false` 减脂）。但发布产物 `aistatus.exe` 同样无签名，「新编译 + 无签名 + 本地构建」在用户机器上被同类 ML 引擎命中只是时间问题。
+**操作**（可选组合，发版前做）：① 购买代码签名证书给 release 产物签名（根治）；② 改用 GitHub Actions `windows-latest` 构建 Windows 产物（仓库已有 `mac-check.yml` 先例）；③ 向主流杀软厂商提交文件哈希做误报申报 / 白名单。
+**完成判据**：发布 exe 带有效签名，或经多家杀软扫描无误报记录。
