@@ -26,14 +26,13 @@ pub async fn refresh_now(app: AppHandle, _state: State<'_, AppState>) -> Result<
 
 /// 用系统默认编辑器打开 balance.json。
 ///
-/// 走 tauri-plugin-opener 的系统文件关联（底层 `open` crate）：
-/// 用 .json 的默认程序打开（VS Code / 新版记事本等），
+/// 走 `open` crate 的系统文件关联：用 .json 的默认程序打开（VS Code / 新版记事本等），
 /// 而非硬编码 notepad——后者在老版 Windows 上按 GBK 打开无 BOM 的
 /// UTF-8，会导致中文乱码并可能污染 balance.json。
 #[tauri::command]
 pub fn open_balance_file() -> Result<(), String> {
     let path = config::balance_path();
-    tauri_plugin_opener::open_path(&path, None::<&str>).map_err(|e| e.to_string())
+    open::that(&path).map_err(|e| e.to_string())
 }
 
 /// 读主题偏好（system / dark / light）。前端启动时据此初始化 <html data-theme>。

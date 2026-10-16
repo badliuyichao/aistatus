@@ -40,7 +40,6 @@ const MAC_EDGE_MARGIN: i32 = 20;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
         .manage(AppState::new())
         // macOS：点红绿灯红色（关闭）不退出进程，改为隐藏窗口（常驻托盘）。
         // 真正退出只能通过托盘菜单「退出」。对齐原生 mac 后台应用行为。

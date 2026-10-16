@@ -20,7 +20,6 @@ serde_json = "1"
 
 [dependencies]
 tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
-tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
@@ -31,6 +30,11 @@ futures = "0.3"
 
 # 跨平台用户数据目录（config.json / balance.json）
 dirs = "5"
+
+# 用系统默认程序打开文件（ShellExecute / open / xdg-open）。
+# 不用 tauri-plugin-opener：其 build script 内嵌权限模式数据，体积大且被本机杀软
+# ML 启发式（TR/W64.Evo）确定性误报隔离；该 crate 是 opener 插件的底层实现，行为一致。
+open = "5"
 
 # balance.json 文件监听 + 防抖
 notify = "6"
@@ -52,3 +56,12 @@ incremental = true
 # 不开 lto / codegen-units=1：编译慢且体积收益小。
 # 常驻悬浮框用 opt-level=3 + 默认 codegen-units 已足够。
 opt-level = 3
+
+# build script / proc-macro 不带调试信息编译：减小 build-script-build.exe 体积。
+# 本机杀软用 ML 启发式（TR/W64.Evo）盯「新编译、无签名」的本地构建产物，
+# 越小越不显眼；dev profile 默认带调试信息，此处收益最大。
+[profile.dev.build-override]
+debug = false
+
+[profile.release.build-override]
+debug = false
