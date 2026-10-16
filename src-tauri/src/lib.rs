@@ -60,6 +60,8 @@ pub fn run() {
             commands::set_float_visible,
             commands::get_mimo_cookie,
             commands::save_mimo_cookie,
+            commands::get_visible_plans,
+            commands::save_visible_plans,
             fit_to_content,
         ])
         .setup(|app| {

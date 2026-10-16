@@ -1,12 +1,12 @@
 <script lang="ts">
-  // 设置对话框：主题选择 + 小米 MiMo Cookie（运行期配置）。
-  // 主题即时生效（点选即应用 + 保存）；GLM/MiniMax 的 API Key 为编译期
-  // 加密硬编码，不由用户配置。MiMo 的用量接口只认浏览器登录 Cookie，
-  // 用户从 DevTools 复制后粘贴于此，保存即触发刷新验证。
+  // 设置对话框：主题选择 + 看板显示的 Coding Plan + 小米 MiMo Cookie。
+  // 主题与 Coding Plan 显隐即时生效（点选即应用 + 保存）；GLM/MiniMax 的
+  // API Key 为编译期加密硬编码，不由用户配置。MiMo 的用量接口只认浏览器
+  // 登录 Cookie，用户从 DevTools 复制后粘贴于此，保存即触发刷新验证。
   import { onDestroy, onMount } from "svelte";
   import { theme } from "../stores/theme.svelte";
   import type { Theme } from "../types";
-  import { getMimoCookie, setMimoCookie } from "../api";
+  import { getMimoCookie, setMimoCookie, getVisiblePlans, setVisiblePlans } from "../api";
 
   let {
     onclose,
@@ -17,6 +17,36 @@
     { id: "dark", label: "暗色" },
     { id: "light", label: "浅色" },
   ];
+
+  // ── 看板显示的 Coding Plan ──
+  // id 与后端稳定 ID 一致（config.json 的 visiblePlans），不随卡片显示名变化。
+  const planOpts: { id: string; label: string; hint?: string }[] = [
+    { id: "glm", label: "GLM 智谱AI" },
+    { id: "minimax", label: "MiniMax" },
+    { id: "mimo", label: "小米 MiMo", hint: "需在下方配置 Cookie 才会出卡片" },
+    { id: "deepseek", label: "DeepSeek", hint: "需内置 API Key 才会出卡片" },
+  ];
+  let visiblePlans = $state<string[]>([]);
+  let plansError = $state("");
+  // 只剩一个勾选项时禁止取消（至少显示一个）
+  const lastOne = $derived(visiblePlans.length <= 1);
+
+  async function togglePlan(id: string, checked: boolean) {
+    const next = checked
+      ? [...new Set([...visiblePlans, id])]
+      : visiblePlans.filter((p) => p !== id);
+    if (next.length === 0) return; // 双保险：UI 已禁用最后一项
+    const prev = visiblePlans;
+    visiblePlans = next; // 乐观更新，保存失败回滚
+    plansError = "";
+    try {
+      await setVisiblePlans(next);
+    } catch (e) {
+      visiblePlans = prev;
+      plansError = String(e);
+      console.error("save_visible_plans failed", e);
+    }
+  }
 
   // ── MiMo Cookie 状态 ──
   // savedCookie：后端当前已保存值（空串 = 未配置）；mimoCookie：编辑框值。
@@ -37,6 +67,11 @@
   );
 
   onMount(async () => {
+    try {
+      visiblePlans = await getVisiblePlans();
+    } catch (e) {
+      console.error("get_visible_plans failed", e);
+    }
     try {
       savedCookie = await getMimoCookie();
       mimoCookie = savedCookie;
@@ -112,6 +147,30 @@
           </button>
         {/each}
       </div>
+    </div>
+
+    <div class="section">
+      <div class="section-label">
+        看板显示的 Coding Plan
+        <span class="plan-count">{visiblePlans.length} / {planOpts.length}</span>
+      </div>
+      <div class="plan-list">
+        {#each planOpts as opt (opt.id)}
+          <label class="plan-opt">
+            <input
+              type="checkbox"
+              checked={visiblePlans.includes(opt.id)}
+              disabled={lastOne && visiblePlans.includes(opt.id)}
+              onchange={(e) => togglePlan(opt.id, e.currentTarget.checked)}
+            />
+            <span class="plan-name">{opt.label}</span>
+            {#if opt.hint}<span class="plan-hint">{opt.hint}</span>{/if}
+          </label>
+        {/each}
+      </div>
+      {#if plansError}
+        <div class="cookie-error">{plansError}</div>
+      {/if}
     </div>
 
     <div class="section">
@@ -230,6 +289,51 @@
     border-color: #2563eb;
     background: #2563eb;
     color: #fff;
+  }
+
+  .plan-count {
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 400;
+    color: var(--text-muted);
+  }
+  .plan-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .plan-opt {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 2px;
+    font-size: 12px;
+    color: var(--text-primary);
+    cursor: pointer;
+    border-radius: 4px;
+  }
+  .plan-opt:hover {
+    background: var(--dialog-cancel-hover);
+  }
+  .plan-opt input {
+    accent-color: #2563eb;
+    cursor: pointer;
+    margin: 0;
+  }
+  .plan-opt input:disabled {
+    cursor: default;
+    opacity: 0.45;
+  }
+  .plan-opt input:disabled ~ .plan-name,
+  .plan-opt input:disabled ~ .plan-hint {
+    opacity: 0.6;
+  }
+  .plan-name {
+    font-weight: 500;
+  }
+  .plan-hint {
+    color: var(--text-muted);
+    font-size: 11px;
   }
 
   .cookie-state {

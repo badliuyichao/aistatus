@@ -8,13 +8,17 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::config;
 use crate::data::BalanceData;
-use crate::state::AppState;
+use crate::merge::filter_visible_plans;
+use crate::state::{self, AppState};
 
 /// 返回当前已合并的展示数据（含 loading 态）。
 /// 前端启动时调一次拿初始数据，之后靠 `services-updated` 事件增量更新。
+/// 快照是全量的，这里按用户可见配置（config.json 的 visiblePlans）过滤后返回。
 #[tauri::command]
 pub async fn get_services(state: State<'_, AppState>) -> Result<BalanceData, String> {
-    Ok(state.snapshot().await)
+    let mut data = state.snapshot().await;
+    filter_visible_plans(&mut data, &config::load_visible_plans());
+    Ok(data)
 }
 
 /// 手动触发一次后台刷新（F5 / 右键菜单）。
@@ -147,9 +151,42 @@ fn extract_cookie_from_curl(s: &str) -> Option<String> {
     Some(rest[..end].trim().to_string())
 }
 
+// ── 看板可见 Coding Plan（设置对话框勾选显示哪几家）──
+
+/// 读看板可见的服务 ID 列表（glm / minimax / mimo / deepseek），对话框打开时回显。
+#[tauri::command]
+pub fn get_visible_plans() -> Vec<String> {
+    config::load_visible_plans()
+}
+
+/// 保存看板可见的服务列表：规范化 → 非空校验（至少一个）→ 持久化
+/// → 立即重发快照（显隐即时生效）→ 触发刷新（补齐刚重新启用服务的新数据）。
+#[tauri::command]
+pub async fn save_visible_plans(app: AppHandle, plans: Vec<String>) -> Result<(), String> {
+    let normalized = normalize_plan_ids(&plans);
+    if normalized.is_empty() {
+        return Err("至少需要显示一个 Coding Plan".into());
+    }
+    config::save_visible_plans(&normalized).map_err(|e| e.to_string())?;
+    state::reemit_visible_snapshot(&app).await;
+    AppState::request_refresh(app).await;
+    Ok(())
+}
+
+/// 宽容清洗勾选项：trim + 小写 + 只保留已知四家 + 去重保序。
+/// 未知 ID 静默丢弃——前端只发已知项，此处理防手调接口传入垃圾值。
+fn normalize_plan_ids(raw: &[String]) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    raw.iter()
+        .map(|s| s.trim().to_lowercase())
+        .filter(|s| config::ALL_PLAN_IDS.contains(&s.as_str()))
+        .filter(|s| seen.insert(s.clone()))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::normalize_cookie;
+    use super::{normalize_cookie, normalize_plan_ids};
 
     #[test]
     fn normalize_plain_value() {
@@ -183,5 +220,30 @@ mod tests {
         assert_eq!(normalize_cookie(""), "");
         assert_eq!(normalize_cookie("   \n  "), "");
         assert_eq!(normalize_cookie("Cookie:"), "");
+    }
+
+    #[test]
+    fn plan_ids_keep_known_in_order() {
+        assert_eq!(
+            normalize_plan_ids(&["glm".into(), "mimo".into(), "deepseek".into()]),
+            vec!["glm", "mimo", "deepseek"]
+        );
+    }
+
+    #[test]
+    fn plan_ids_normalize_case_trim_and_dedupe() {
+        assert_eq!(
+            normalize_plan_ids(&[" GLM ".into(), "GLM".into(), "MiMo".into()]),
+            vec!["glm", "mimo"]
+        );
+    }
+
+    #[test]
+    fn plan_ids_drop_unknown() {
+        assert_eq!(
+            normalize_plan_ids(&["openai".into(), "minimax".into()]),
+            vec!["minimax"]
+        );
+        assert!(normalize_plan_ids(&["".into(), "  ".into()]).is_empty());
     }
 }
