@@ -118,6 +118,7 @@ pub async fn fetch(api_key: &str) -> DeepseekFetch {
         currency: sym.clone(),
         unit: "元".into(),
         detail: compose_detail(&sym, topped, granted, body.is_available),
+        placeholder: false,
     })
 }
 
@@ -170,6 +171,7 @@ fn placeholder_result(msg: String) -> DeepseekResult {
         currency: "¥".into(),
         unit: "元".into(),
         detail: msg,
+        placeholder: true,
     }
 }
 

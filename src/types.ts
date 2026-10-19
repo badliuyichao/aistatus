@@ -27,6 +27,7 @@ export interface ServiceInfo {
   unit: string;
   detail: string;
   loading: boolean; // 无实时数据时卡片显示 N/A
+  placeholder?: boolean; // 错误占位（如 DeepSeek key 无效），金额不参与状态判断
 }
 
 export interface BalanceData {

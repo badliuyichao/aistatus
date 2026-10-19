@@ -94,6 +94,11 @@ pub struct ServiceInfo {
     /// 无实时数据时（启动中 / 拉取失败）为 true，卡片显示 N/A。
     #[serde(default)]
     pub loading: bool,
+
+    /// 错误占位（如 API Key 无效 / 服务繁忙）：金额给 0 仅作占位，
+    /// 前端据此隐藏「安全/预警/危险」余额状态，避免误判。
+    #[serde(default)]
+    pub placeholder: bool,
 }
 
 fn default_service_type() -> String {
@@ -216,6 +221,9 @@ pub struct DeepseekResult {
     pub unit: String,
     /// 明细文案（充值 / 赠送拆分，或错误占位提示）。
     pub detail: String,
+    /// 错误占位（余额不足 / key 无效等）：金额不可用于余额状态判断。
+    #[serde(default)]
+    pub placeholder: bool,
 }
 
 /// DeepSeek 拉取的三态结果。

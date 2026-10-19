@@ -37,7 +37,7 @@ Tauri 2 + Svelte 5 + TypeScript + Vite 跨平台桌面实现。
 - **存储**：用户数据目录下 `config.json`（主题、悬浮条位置、看板显示的 Coding Plan、MiMo Cookie）+ `balance.json`（余额数据模板）
 - **API Key**：GLM / MiniMax / DeepSeek 三家 key **编译期加密硬编码**进二进制（`scripts/encrypt-keys.mjs` 读本机 `src-tauri/keys.local.json` 明文 → XOR 加密 → `src-tauri/secrets.enc` 密文提交 git → `build.rs` 编译期注入字节数组 → `secrets.rs` 运行期解密）。明文 key 不出现在源码 / 二进制字符串表（`strings` 扫不到），挡住静态逆向；用户无需也无法配置 key。`keys.local.json` 是明文源，已 `.gitignore`，绝不提交。**`deepseek` 是可选字段**：没放 key 时 `secrets.enc` 不含 `encDeepseek`，编译出的程序不显示 DeepSeek 卡片。
 - **MiMo Cookie（例外，不走编译期加密）**：小米 MiMo 的用量接口（`platform.xiaomimimo.com/api/v1/tokenPlan/usage`，逆向自控制台、非官方公开 API）**不接受 API Key，只认浏览器登录 Cookie**，因此由用户**运行期配置**：设置对话框粘贴（支持纯值 / `Cookie:` 前缀 / cURL 整段三种形态，`normalize_cookie` 清洗）→ 明文存 `config.json` 的 `mimo.cookie` → 保存即触发刷新。每次刷新现读 config，无需缓存失效。Cookie 会过期，失效时卡片显示提示，需重新粘贴。明文存储是经确认的决策：config.json 只落用户本机数据目录、不进 git，与编译期加密（防 key 进分发包）的威胁模型不同。
-- **DeepSeek 余额（余额型服务，非配额型）**：官方公开接口 `GET api.deepseek.com/user/balance`（Bearer key），返回 `is_available` + `balance_infos[]`（`currency` / `total_balance` / `granted_balance` / `topped_up_balance`，**金额是字符串**）。DeepSeek 是纯 prepaid 按量计费，没有时间窗口 / 套餐额度概念，**没有「已用百分比」语义**：主窗口走 `ServiceInfo` 的 balance 分支（大号金额 + 充值 / 赠送明细），悬浮条显示金额而非进度条（金额按余额阈值着色：红 <¥10 / 黄 <¥50）。key 与 GLM/MiniMax 同走编译期加密，但属**可选服务**（三态 `DeepseekFetch`）：未内置 key 不出卡片；401 显示「API Key 无效」占位、402/503 显示「余额不足或服务繁忙」占位（对齐 MiMo Cookie 失效的占位思路，比 N/A 可诊断）。多币种时优先取 CNY 条目。
+- **DeepSeek 余额（余额型服务，非配额型）**：官方公开接口 `GET api.deepseek.com/user/balance`（Bearer key），返回 `is_available` + `balance_infos[]`（`currency` / `total_balance` / `granted_balance` / `topped_up_balance`，**金额是字符串**）。DeepSeek 是纯 prepaid 按量计费，没有时间窗口 / 套餐额度概念，**没有「已用百分比」语义**：主窗口走 `ServiceInfo` 的 balance 分支（大号金额 + 充值 / 赠送明细），悬浮条显示金额而非进度条（金额按余额阈值着色并附状态标签：安全 ≥¥50 绿 / 预警 ¥10–<¥50 黄 / 危险 <¥10 红；错误占位不标状态）。key 与 GLM/MiniMax 同走编译期加密，但属**可选服务**（三态 `DeepseekFetch`）：未内置 key 不出卡片；401 显示「API Key 无效」占位、402/503 显示「余额不足或服务繁忙」占位（对齐 MiMo Cookie 失效的占位思路，比 N/A 可诊断）。多币种时优先取 CNY 条目。
 - **外观**：`window-vibrancy` 原生毛玻璃（Win acrylic/mica、mac vibrancy），失败降级 CSS
 
 ## 品牌图标（Lobe Icons）
@@ -169,10 +169,10 @@ keys.local.json（明文，.gitignore，仅本机）
 
 - 窗口默认隐藏，托盘菜单「打开主界面」唤起；mac 关闭按钮=隐藏（常驻托盘），仅「退出」结束进程。
 - 定位：Windows 锚主屏右下角（避任务栏，逻辑像素×缩放）；mac 跟随托盘图标。
-- 悬浮条显示 GLM / MiniMax 的「5小时限额」与 MiMo 的「Token Plan 套餐」已用%，以及 DeepSeek 的余额金额（不放进度条——余额无分母，金额按余额阈值着色：红 <¥10 / 黄 <¥50；明细进 tooltip）；MiMo 未配置 Cookie / DeepSeek 未内置 key 时对应行隐藏。
+- 悬浮条显示 GLM / MiniMax 的「5小时限额」+「周限额」（各自在同一行内上下两条 4px 进度条，不增加窗口高度；上=5小时、下=本周，不显示右侧百分比文字，数值在 tooltip；进度条填充为同一色相浅→深渐变，已用% 越高露出的颜色越深）、MiMo 的「Token Plan 套餐」已用%，以及 DeepSeek 的余额金额（不放进度条——余额无分母，金额按余额阈值着色：红 <¥10 / 黄 <¥50；明细进 tooltip）；MiMo 未配置 Cookie / DeepSeek 未内置 key 时对应行隐藏。
 - 看板显示哪几个 Coding Plan 由用户在设置对话框勾选（`config.json` 的 `visiblePlans`，存稳定 ID `glm` / `minimax` / `mimo` / `deepseek`，与卡片显示名解耦；**至少一个**，后端 `save_visible_plans` 校验非空，前端把最后一项禁用）。过滤在**展示层**（快照出口：`get_services` / `services-updated` emit）进行，快照始终保留全量——主窗口与悬浮条同步显隐，取消隐藏可立即用缓存回显、随后刷新补数据；后台仍照常拉取全部四家。MiMo 勾选后仍需配置 Cookie 才会出卡片，DeepSeek 勾选后仍需编译期内置 key 才会出卡片。
 - 悬浮条高度随可见服务行数自适应（基础 20 + 每行 20 逻辑像素：1 行 40 / 2 行 60 / 3 行 80 / 4 行 100，`state.rs::fit_float_window`，每次刷新后调整；用户未拖过时重锚平台默认角，避免增高压到任务栏。mac 为顶部锚定，`set_size` 后左上角不动，重锚逻辑已按平台分支但未在 mac 实测）。
 - 窗口高度自适应卡片数量（`fit_to_content` command + 前端 `ResizeObserver`）。
 - 刷新：启动一次 + 每 60s 定时；F5 手动刷新；编辑 `balance.json` 也会触发刷新。
 - MiMo 卡片是可选服务（三态）：未配置 Cookie 不显示卡片；偶发拉取失败显示 N/A；Cookie 失效显示明确提示条。MiMo 的 `QuotaItem.used/total` 是**原始额度**（非 0–100 百分比），API 的 `percent` 是 0–1 小数，展示百分比需自行换算（见 `to_quota_item` 与悬浮条 `mimoPct`）。周期重置倒计时来自 `tokenPlan/detail` 的 `currentPeriodEnd`（北京时间字符串），换算成「N天后重置」拼进 Token Plan 套餐条的 detail；该请求失败只少文案，不影响主数据。
-- DeepSeek 卡片是可选服务（三态，见 `DeepseekFetch`）：未内置 key 不显示卡片；偶发拉取失败显示 N/A；401 key 无效 / 402、503 余额不足或繁忙显示明确占位提示（占位时金额显示 ¥0.00，原因在 detail）。余额型走 `ServiceInfo` 的 balance 分支（`BalanceView` 大号金额 + detail 充值 / 赠送拆分）；`is_available=false` 时 detail 附「余额不足，请及时充值」。
+- DeepSeek 卡片是可选服务（三态，见 `DeepseekFetch`）：未内置 key 不显示卡片；偶发拉取失败显示 N/A；401 key 无效 / 402、503 余额不足或繁忙显示明确占位提示（占位时金额显示 ¥0.00，原因在 detail）。余额型走 `ServiceInfo` 的 balance 分支（`BalanceView` 大号金额 + detail 充值 / 赠送拆分）；金额旁显示状态标签（安全 ≥¥50 绿 / 预警 ¥10–<¥50 黄 / 危险 <¥10 红），`placeholder=true` 的错误占位不显示状态；`is_available=false` 时 detail 附「余额不足，请及时充值」。

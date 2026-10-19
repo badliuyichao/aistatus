@@ -332,6 +332,7 @@ fn merge_deepseek_ok(data: &mut BalanceData, pos: Option<usize>, d: &DeepseekRes
             svc.icon = icon;
             svc.color = color;
             svc.loading = false;
+            svc.placeholder = d.placeholder;
         }
         None => data.services.push(ServiceInfo {
             name: "DeepSeek".into(),
@@ -342,6 +343,7 @@ fn merge_deepseek_ok(data: &mut BalanceData, pos: Option<usize>, d: &DeepseekRes
             currency,
             unit,
             detail: d.detail.clone(),
+            placeholder: d.placeholder,
             ..Default::default()
         }),
     }
@@ -431,12 +433,14 @@ mod tests {
             currency: "¥".into(),
             unit: "元".into(),
             detail: "充值 ¥100.00 · 赠送 ¥10.00".into(),
+            placeholder: false,
         });
         merge_deepseek(&mut data, &ok);
 
         let svc = data.services.last().unwrap();
         assert_eq!(svc.r#type, "balance");
         assert!(!svc.loading);
+        assert!(!svc.placeholder);
         assert!(svc.items.is_empty());
         assert_eq!(svc.balance, 110.0);
         assert_eq!(svc.currency, "¥");
@@ -455,6 +459,7 @@ mod tests {
             currency: String::new(),
             unit: String::new(),
             detail: "暂无余额".into(),
+            placeholder: false,
         });
         merge_deepseek(&mut data, &ok);
         let svc = data.services.last().unwrap();
@@ -465,6 +470,28 @@ mod tests {
         assert_eq!(svc.currency, "¥");
         assert_eq!(svc.unit, "元");
         assert_eq!(svc.balance, 5.5);
+    }
+
+    #[test]
+    fn deepseek_placeholder_flag_propagates() {
+        // 401/402/503 的占位结果金额为 0，但必须带 placeholder=true，
+        // 前端才不会把它误标成「危险」。
+        let mut data = sample();
+        let ok = DeepseekFetch::Ok(DeepseekResult {
+            name: "DeepSeek".into(),
+            r#type: "balance".into(),
+            icon: String::new(),
+            color: String::new(),
+            balance: 0.0,
+            currency: "¥".into(),
+            unit: "元".into(),
+            detail: "API Key 无效".into(),
+            placeholder: true,
+        });
+        merge_deepseek(&mut data, &ok);
+        let svc = data.services.last().unwrap();
+        assert!(svc.placeholder);
+        assert_eq!(svc.detail, "API Key 无效");
     }
 
     #[test]
