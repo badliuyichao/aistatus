@@ -7,13 +7,11 @@
 
 ## 🔬 无法在本机确认（需对应平台验证）
 
-### [ ] 1. macOS / Linux：验证内嵌 balance.json 首次启动模板
+### [x] 1. macOS / Linux：验证内嵌 balance.json 首次启动模板（已随多实例改造失效，2026-10-20）
 
-**背景**：已移除旧实现目录，并改为通过 Rust `include_str!` 将 `src-tauri/resources/balance.json` 编译进程序，避免运行时依赖安装目录外的文件。本机仅能验证 Windows。
+**背景**：旧实现通过 `include_str!` 将 `resources/balance.json` 编译进程序作首启模板。**2026-10-20 多实例改造后 balance.json 已整体退役**：模板文件、`load_balance_or_default` 与按名称 merge 全部删除，快照直接由 config.json 的 `plans` 实例 + 拉取结果生成，本条不再有可验证对象。
 
-**验证/操作方法**：在 macOS 或 Linux 上构建应用，删除该系统用户配置目录中的 `aistatus/balance.json` 后首次启动；再通过「编辑数据文件」确认文件已生成且可正常打开。
-
-**完成判据**：首次启动后在对应系统配置目录生成有效的 `balance.json`，界面正常显示默认服务卡片。
+**后续**：首启 / 升级行为改由「播种迁移」承担，mac 端验证并入第 11 条（迁移与多实例实测）。
 
 ### [x] 2. macOS 编译验证：`lib.rs` 的条件编译改动（2026-09-01）
 
@@ -76,28 +74,30 @@ pnpm tauri dev
 
 ### [ ] 7. macOS：悬浮条高度自适应（fit_float_window）实测
 
-**背景**：悬浮条按可见服务行数自适应高度：`state.rs::fit_float_window` 由「MiMo 有无 → 60 ↔ 80」改为「可见行数 → 基础 20 + 每行 20」（1 行 40 / 2 行 60 / 3 行 80，2026-10-14 随看板显隐配置改动泛化）。平台差异：Win/Linux 底部锚定，增高后重锚右下角防压任务栏（**Windows 已实测**：窗口 270×120 物理、底部距任务栏 31px，当时为 60/80 两态版本）；mac 走 `anchor_top_right` 重锚分支，本机无法验证。
+**背景**：悬浮条按可见服务行数自适应高度：`state.rs::fit_float_window` =「基础 20 + 每行 20 逻辑像素」（2026-10-14 随看板显隐泛化；2026-10-20 多实例改造后按**实例行数**增长，同品牌多实例各占一行，不再按品牌去重）。平台差异：Win/Linux 底部锚定，增高后重锚右下角防压任务栏（**Windows 已实测**：60/80 两态 + 多实例 3 行 80 高均正常）；mac 走 `anchor_top_right` 重锚分支，本机无法验证。
 **验证/操作方法**（在 mac 上）：
 ```bash
 pnpm tauri dev
-# 配置 MiMo Cookie 后观察：悬浮条增高到 80 且出现第三行；清 Cookie 后回落 60
-# 在设置对话框取消勾选一家：行数减少、高度回落到 40/60；增高后窗口顶部应仍贴菜单栏下方
+# 配置 MiMo Cookie / 添加多个实例后观察：悬浮条随行数增高（如 5 行 = 120）
+# 在设置对话框隐藏 / 删除实例：行数减少、高度回落；增高后窗口顶部应仍贴菜单栏下方
 ```
-**完成判据**：mac 上高度随可见行数切换正常、顶部锚定不漂移，单行可见时窗口保持 40 高。
+**完成判据**：mac 上高度随可见实例行数切换正常、顶部锚定不漂移，单行可见时窗口保持 40 高。
 
-### [ ] 8. macOS（及 Windows GUI）：看板显隐配置（visiblePlans）实测
+### [ ] 8. Windows GUI / macOS：Coding Plan 实例管理（plans）实测
 
-**背景**：2026-10-14 新增设置对话框「看板显示的 Coding Plan」多选（`config.json` 的 `visiblePlans`，存稳定 ID glm/minimax/mimo，至少一个）。后端在展示层过滤（`get_services` / `services-updated` 出口），主窗口与悬浮条同步显隐；保存后重发快照即时生效并触发刷新。逻辑已由单测覆盖（merge 过滤 / normalize 校验），但 GUI 交互未做自动化实测；mac 端本机无法验证。（2026-10-15 起可选 ID 增至四家，对话框计数为「N / 4」。）
+**背景**：2026-10-20 多实例改造，`visiblePlans` 品牌级勾选**退役**，改为设置对话框「Coding Plan 管理」：实例列表（显隐勾选 / 备注改名 / 换 Key / 删除）+ 添加表单（GLM / MiniMax / DeepSeek），存 `config.json` 的 `plans`；至少保留一个实例、至少一个可见。后端逻辑已由单测覆盖（normalize / 播种 / 快照过滤），**对话框 GUI 交互未做自动化实测**（Windows 冒烟只验证了展示与数据链路），mac 本机无法验证。
 **验证/操作方法**：
 ```bash
 pnpm tauri dev   # 托盘右键 →「设置…」
-# 1. 勾选/取消各家：主窗口卡片与悬浮条行同步显隐，无残留占位
-# 2. 只剩一项时该复选框禁用（无法取消到 0）；对话框显示「N / 4」计数
-# 3. 重新勾选后卡片立即回显（缓存），1–2s 内刷新为新数据
-# 4. 重启应用：勾选状态保持（config.json 的 visiblePlans）
-# 5. 手改 config.json 为 "visiblePlans": [] → 重启应回退为全部显示
+# 1. 添加实例：选品牌 + 粘贴 key + 备注 → 主窗口与悬浮条各多一行，1–2s 内出数据
+# 2. 同品牌加两个实例：备注名正确区分；两实例进度条同色相、靠标签区分
+# 3. 换 Key：粘贴错 key 保存 → 卡片显示「API Key 无效 · 请在设置中检查」占位
+# 4. 显隐：取消勾选某实例 → 两窗口同步消失；最后一个可见项勾选框禁用
+# 5. 删除：剩最后一个实例时删除按钮禁用；删除后快照不再出现该卡片
+# 6. 重启应用：实例列表 / 备注 / 显隐全部保持（config.json 的 plans）
+# 7. MiMo 行：Cookie 尾部指纹与下方 Cookie 区块联动（保存/清除后同步）
 ```
-**完成判据**：上述 5 项全部符合；显隐切换时主窗口高度自适应正常、悬浮条无跳动。
+**完成判据**：上述 7 项全部符合；增删时主窗口高度、悬浮条高度自适应正常，无残留占位。
 
 ### [x] 10. DeepSeek 卡片真 key 验证（需先内置 key，2026-10-15）
 
@@ -112,9 +112,35 @@ pnpm tauri dev   # 托盘右键 →「设置…」
 
 **已完成（2026-10-15）**：真实 key 已写入 `keys.local.json` 并重新加密（`secrets.enc` 含三家密文，待随下次提交进 git）。curl 直调接口 HTTP 200，响应字段与解析器逐一吻合（`is_available` / `balance_infos[].currency=CNY` / 字符串金额）；假 key 直调确认 HTTP 401（占位路径触发条件成立，映射逻辑由单测覆盖）。`pnpm tauri dev` 启动后连续多个刷新周期 `[DeepseekFetcher]` 零错误日志（该 fetcher 仅失败路径打日志）。存量 `visiblePlans` 已补 `deepseek`。注：该 key 曾在对话中明文传递，如有顾虑建议在开放平台轮换。
 
+### [ ] 11. macOS / Linux：plans 播种迁移与多实例运行实测（2026-10-20）
+
+**背景**：多实例改造（key 运行期配置 + balance.json 退役 + 旧 `visiblePlans`/`mimo.cookie` 播种迁移）仅在 **Windows 实测**：升级首启自动生成 `plans`（GLM/MiniMax/DeepSeek 可见 + MiMo 保留原隐藏态与 Cookie，`visiblePlans` 字段移除），主窗口与悬浮条多实例渲染、`fit_float_window` 行数自适应均正常。迁移写文件（`config.rs::migrate_seed_plans`）与快照链路是跨平台纯逻辑，mac 风险低，但路径 / 原子写（tmp+rename）/ 时序未在 mac 实测。
+
+**验证/操作方法**（在 mac 上）：
+```bash
+# 用一份旧版 config.json（含 visiblePlans / mimo.cookie，无 plans 字段）启动新版：
+pnpm tauri dev
+# 1. 确认 config.json 自动生成 plans 数组、visiblePlans 移除、卡片原样出现
+# 2. 设置对话框添加同品牌第二实例，两窗口各多一行
+# 3. 右键「编辑配置文件」能打开 config.json
+```
+**完成判据**：迁移一次性完成且幂等（二次启动不再重写）；卡片 / 悬浮条与 Windows 行为一致。
+
 ---
 
 ## 🧹 其他待办（非阻塞）
+
+### [ ] 13. 内置实例（builtin 引用）模型的 mac / 分发实测（2026-10-20）
+
+**背景**：为维持「exe 分发 + key 不泄露」能力，内置 key 改为**只存二进制密文、不落盘**：config.json 里内置实例仅存 `{builtin: 序号}` 引用（key 字段恒空），运行期拉取时解密；`keys.local.json` 支持数组（同品牌多 key）；`load_plans` 每轮自动把误存的内置 key 明文转为引用并清除。Windows 已实测：本机 config.json 的 4 个明文实例自动转为 builtin 引用（含备用的新 GLM key）、builtin 凭据拉取与渲染正常。mac 端迁移与拉取链路未实测。
+**验证/操作方法**（在 mac 上）：用旧版 config.json（key 明文）+ 新版 secrets.enc 启动，确认明文自动转为 `builtin` 引用、卡片正常出数；`keys.local.json` 数组化后重跑 `node scripts/encrypt-keys.mjs` 能构建。
+**完成判据**：与 Windows 行为一致；`config.json` 中无任何 key 明文。
+
+### [ ] 12. 多实例改造的遗留清理（可选，2026-10-20）
+
+**背景**：key 改运行期配置后有两处无害遗留：① 用户数据目录的旧 `balance.json` 不再被读取（程序不主动删用户文件）；② 旧版 config.json 里的 `glmApiKey` / `minimaxApiKey` / `deepseekApiKey` 字段已无消费者（播种走的是编译期内置 key，非这些字段）。
+**操作**：手动删除数据目录的 `balance.json`（Windows：`%APPDATA%\aistatus\`；mac：`~/Library/Application Support/aistatus/`）；config.json 旧字段可在下次改配置时顺手删，或不管（serde 读-改-写会原样保留，无副作用）。
+**完成判据**：删除后应用运行正常、无异常日志。
 
 ### [ ] 4. （可选）重装 rustup，根治 cargo PATH stub
 

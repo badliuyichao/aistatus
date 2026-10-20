@@ -17,7 +17,10 @@ export type ServiceType = "quota" | "balance";
 export type Theme = "system" | "dark" | "light";
 
 export interface ServiceInfo {
-  name: string;
+  id: string; // 实例稳定 ID（config.json plans 的 id）
+  vendor: string; // 服务商稳定 ID：glm / minimax / mimo / deepseek
+  name: string; // 展示名（品牌名；GLM 带套餐后缀）
+  label: string; // 用户命名的实例标签（可空），区分同品牌实例
   type: ServiceType;
   icon: string;
   color: string;
@@ -27,7 +30,21 @@ export interface ServiceInfo {
   unit: string;
   detail: string;
   loading: boolean; // 无实时数据时卡片显示 N/A
-  placeholder?: boolean; // 错误占位（如 DeepSeek key 无效），金额不参与状态判断
+  placeholder?: boolean; // 错误占位（如 API Key 无效），金额不参与状态判断
+}
+
+// 一个 Coding Plan 实例（同品牌可配多个），对应 config.json 的 plans 数组。
+// glm / minimax / deepseek 用 key 字段；mimo 用 cookie 字段。
+// builtin 非空 = 内置实例：凭据编译在二进制里（不落盘），key 字段恒为空，
+// 按序号引用该品牌的内置 key；后端序列化时省略该字段。
+export interface PlanConfig {
+  id: string;
+  vendor: string;
+  label: string;
+  key: string;
+  cookie: string;
+  visible: boolean;
+  builtin?: number | null;
 }
 
 export interface BalanceData {

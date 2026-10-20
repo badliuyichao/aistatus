@@ -1,12 +1,14 @@
 <script lang="ts">
-  // 设置对话框：主题选择 + 看板显示的 Coding Plan + 小米 MiMo Cookie。
-  // 主题与 Coding Plan 显隐即时生效（点选即应用 + 保存）；GLM/MiniMax 的
-  // API Key 为编译期加密硬编码，不由用户配置。MiMo 的用量接口只认浏览器
-  // 登录 Cookie，用户从 DevTools 复制后粘贴于此，保存即触发刷新验证。
+  // 设置对话框：主题选择 + Coding Plan 实例管理 + 小米 MiMo Cookie。
+  // 主题即时生效（点选即应用 + 保存）。Coding Plan 实例支持同品牌多份
+  // （如 2 个 GLM coding plan、2 个 DeepSeek key）：添加 / 备注 / 换 Key /
+  // 显隐 / 删除，整体乐观更新、失败回滚，保存后端即时重发快照并触发刷新。
+  // MiMo 的用量接口只认浏览器登录 Cookie，从 DevTools 复制后粘贴于下方区块
+  // （存到 plans 里的 mimo 实例），保存即触发刷新验证。
   import { onDestroy, onMount } from "svelte";
   import { theme } from "../stores/theme.svelte";
-  import type { Theme } from "../types";
-  import { getMimoCookie, setMimoCookie, getVisiblePlans, setVisiblePlans } from "../api";
+  import type { PlanConfig, Theme } from "../types";
+  import { getMimoCookie, setMimoCookie, getPlans, savePlans } from "../api";
 
   let {
     onclose,
@@ -18,34 +20,135 @@
     { id: "light", label: "浅色" },
   ];
 
-  // ── 看板显示的 Coding Plan ──
-  // id 与后端稳定 ID 一致（config.json 的 visiblePlans），不随卡片显示名变化。
-  const planOpts: { id: string; label: string; hint?: string }[] = [
-    { id: "glm", label: "GLM 智谱AI" },
+  // ── Coding Plan 实例管理 ──
+  // id 为实例稳定 ID（后端生成），不随显示名变化；显隐 / 删除 / 换 Key 都按 id。
+  const vendorNames: Record<string, string> = {
+    glm: "GLM 智谱AI",
+    minimax: "MiniMax",
+    mimo: "小米 MiMo",
+    deepseek: "DeepSeek",
+  };
+  // 添加表单可选的服务商；MiMo 走下方 Cookie 区块，不在此添加。
+  const addableVendors: { id: string; label: string }[] = [
+    { id: "glm", label: "GLM" },
     { id: "minimax", label: "MiniMax" },
-    { id: "mimo", label: "小米 MiMo", hint: "需在下方配置 Cookie 才会出卡片" },
-    { id: "deepseek", label: "DeepSeek", hint: "需内置 API Key 才会出卡片" },
+    { id: "deepseek", label: "DeepSeek" },
   ];
-  let visiblePlans = $state<string[]>([]);
-  let plansError = $state("");
-  // 只剩一个勾选项时禁止取消（至少显示一个）
-  const lastOne = $derived(visiblePlans.length <= 1);
 
-  async function togglePlan(id: string, checked: boolean) {
-    const next = checked
-      ? [...new Set([...visiblePlans, id])]
-      : visiblePlans.filter((p) => p !== id);
-    if (next.length === 0) return; // 双保险：UI 已禁用最后一项
-    const prev = visiblePlans;
-    visiblePlans = next; // 乐观更新，保存失败回滚
+  let plans = $state<PlanConfig[]>([]);
+  let plansError = $state("");
+  let plansBusy = $state(false); // 保存中，防连点
+
+  // 添加表单状态
+  let addVendor = $state("glm");
+  let addLabel = $state("");
+  let addKey = $state("");
+
+  // 行内换 Key：正在编辑的实例 id + 输入值（不回显旧 key，避免误改）
+  let editKeyId = $state("");
+  let editKeyValue = $state("");
+
+  // 至少保留一个实例；至少一个可见
+  const canDelete = $derived(plans.length > 1);
+  const visibleCount = $derived(plans.filter((p) => p.visible).length);
+
+  /** 凭据展示：内置实例显示「内置」（key 编译在二进制里，不落盘不可见），
+   *  普通实例显示尾部指纹，确认对应哪个 key / cookie（完整值不宜展示）。 */
+  function credTail(p: PlanConfig): string {
+    if (p.builtin != null) return "内置";
+    const cred = p.vendor === "mimo" ? p.cookie : p.key;
+    return cred ? `…${cred.slice(-8)}` : "未配置";
+  }
+
+  /** 乐观更新 + 失败回滚。成功后以后端规范化结果为准
+   *  （新增实例的 id 由后端生成）。mutate 返回 null 表示校验不过，不动。 */
+  async function persist(mutate: (list: PlanConfig[]) => PlanConfig[] | null) {
+    if (plansBusy) return;
+    const next = mutate(plans);
+    if (next === null) return;
+    const prev = plans;
+    plans = next;
+    plansBusy = true;
     plansError = "";
     try {
-      await setVisiblePlans(next);
+      plans = await savePlans(next);
     } catch (e) {
-      visiblePlans = prev;
+      plans = prev;
       plansError = String(e);
-      console.error("save_visible_plans failed", e);
+      console.error("save_plans failed", e);
+    } finally {
+      plansBusy = false;
     }
+  }
+
+  function toggleVisible(p: PlanConfig, checked: boolean) {
+    persist((list) => {
+      if (!checked && list.filter((x) => x.visible).length <= 1) return null;
+      return list.map((x) => (x.id === p.id ? { ...x, visible: checked } : x));
+    });
+  }
+
+  function removePlan(p: PlanConfig) {
+    persist((list) => (list.length <= 1 ? null : list.filter((x) => x.id !== p.id)));
+  }
+
+  /** 上移 / 下移实例：显示顺序 = plans 数组顺序（主窗口卡片与悬浮条一致）。 */
+  function movePlan(p: PlanConfig, dir: -1 | 1) {
+    const idx = plans.findIndex((x) => x.id === p.id);
+    const next = idx + dir;
+    if (idx < 0 || next < 0 || next >= plans.length || plansBusy) return;
+    const list = [...plans];
+    [list[idx], list[next]] = [list[next], list[idx]];
+    persist(() => list);
+  }
+
+  function renamePlan(p: PlanConfig, label: string) {
+    const v = label.trim();
+    if (v === p.label) return;
+    const target = p.id;
+    persist((list) => list.map((x) => (x.id === target ? { ...x, label: v } : x)));
+  }
+
+  function toggleEditKey(p: PlanConfig) {
+    if (editKeyId === p.id) {
+      cancelEditKey();
+    } else {
+      editKeyId = p.id;
+      editKeyValue = "";
+    }
+  }
+
+  function confirmEditKey(p: PlanConfig) {
+    const v = editKeyValue.trim();
+    if (!v) return;
+    const target = p.id;
+    editKeyId = "";
+    editKeyValue = "";
+    // 换 Key 会断开内置引用（builtin 清空），改为使用粘贴的明文 Key
+    persist((list) =>
+      list.map((x) => (x.id === target ? { ...x, key: v, builtin: null } : x))
+    );
+  }
+
+  function cancelEditKey() {
+    editKeyId = "";
+    editKeyValue = "";
+  }
+
+  function addPlan() {
+    const key = addKey.trim();
+    if (!key || plansBusy) return;
+    const entry: PlanConfig = {
+      id: "", // 由后端 normalize 生成
+      vendor: addVendor,
+      label: addLabel.trim(),
+      key,
+      cookie: "",
+      visible: true,
+    };
+    addKey = "";
+    addLabel = "";
+    persist((list) => [...list, entry]);
   }
 
   // ── MiMo Cookie 状态 ──
@@ -66,12 +169,17 @@
     saveState !== "saving" && mimoCookie.trim() !== "" && mimoCookie !== savedCookie
   );
 
-  onMount(async () => {
+  /** Cookie 存的是 plans 里的 mimo 实例，保存后同步实例列表（尾部指纹等）。 */
+  async function syncPlans() {
     try {
-      visiblePlans = await getVisiblePlans();
+      plans = await getPlans();
     } catch (e) {
-      console.error("get_visible_plans failed", e);
+      console.error("get_plans failed", e);
     }
+  }
+
+  onMount(async () => {
+    await syncPlans();
     try {
       savedCookie = await getMimoCookie();
       mimoCookie = savedCookie;
@@ -95,6 +203,7 @@
       await setMimoCookie(mimoCookie);
       savedCookie = mimoCookie.trim();
       saveState = "saved";
+      await syncPlans();
       // 后端保存后已触发刷新；稍候自动关闭让用户看到卡片更新结果
       closeTimer = setTimeout(() => onclose(), 800);
     } catch (e) {
@@ -112,6 +221,7 @@
       savedCookie = "";
       mimoCookie = "";
       saveState = "saved";
+      await syncPlans();
       closeTimer = setTimeout(() => onclose(), 800);
     } catch (e) {
       saveState = "";
@@ -151,23 +261,137 @@
 
     <div class="section">
       <div class="section-label">
-        看板显示的 Coding Plan
-        <span class="plan-count">{visiblePlans.length} / {planOpts.length}</span>
+        Coding Plan 管理
+        <span class="plan-count">{plans.length} 个实例 · {visibleCount} 个可见</span>
       </div>
       <div class="plan-list">
-        {#each planOpts as opt (opt.id)}
-          <label class="plan-opt">
+        {#each plans as p, idx (p.id)}
+          <div class="plan-row">
+            <label class="plan-vis" title={p.visible ? "点击隐藏" : "点击显示"}>
+              <input
+                type="checkbox"
+                checked={p.visible}
+                disabled={plansBusy || (p.visible && visibleCount <= 1)}
+                onchange={(e) => toggleVisible(p, e.currentTarget.checked)}
+              />
+            </label>
+            <span class="plan-vendor">{vendorNames[p.vendor] ?? p.vendor}</span>
             <input
-              type="checkbox"
-              checked={visiblePlans.includes(opt.id)}
-              disabled={lastOne && visiblePlans.includes(opt.id)}
-              onchange={(e) => togglePlan(opt.id, e.currentTarget.checked)}
+              class="plan-label"
+              value={p.label}
+              placeholder="备注名"
+              title="备注名（区分同品牌实例）"
+              disabled={plansBusy}
+              onchange={(e) => renamePlan(p, e.currentTarget.value)}
+              onkeydown={(e) => {
+                if (e.key === "Enter") e.currentTarget.blur();
+              }}
             />
-            <span class="plan-name">{opt.label}</span>
-            {#if opt.hint}<span class="plan-hint">{opt.hint}</span>{/if}
-          </label>
+            <span
+              class="plan-tail"
+              title={p.builtin != null
+                ? "Key 编译内置（不落盘不可见）"
+                : p.vendor === "mimo"
+                  ? "Cookie"
+                  : "API Key"}
+            >
+              {p.vendor === "mimo" ? "Cookie " : ""}{credTail(p)}
+            </span>
+            {#if p.vendor === "mimo"}
+              <span class="plan-hint">Cookie 在下方</span>
+            {:else}
+              <button
+                class="mini-btn"
+                disabled={plansBusy}
+                onclick={() => toggleEditKey(p)}
+                title={p.builtin != null
+                  ? "更换后将断开内置引用，改用粘贴的 Key"
+                  : "更换该实例的 API Key"}
+              >
+                换 Key
+              </button>
+            {/if}
+            <button
+              class="mini-btn move"
+              disabled={plansBusy || idx === 0}
+              onclick={() => movePlan(p, -1)}
+              title="上移（列表顺序 = 卡片与悬浮条顺序）"
+            >
+              ↑
+            </button>
+            <button
+              class="mini-btn move"
+              disabled={plansBusy || idx === plans.length - 1}
+              onclick={() => movePlan(p, 1)}
+              title="下移（列表顺序 = 卡片与悬浮条顺序）"
+            >
+              ↓
+            </button>
+            <button
+              class="mini-btn danger"
+              disabled={plansBusy || !canDelete}
+              onclick={() => removePlan(p)}
+              title={canDelete ? "删除该实例" : "至少保留一个实例"}
+            >
+              删
+            </button>
+          </div>
+          {#if editKeyId === p.id}
+            <div class="plan-key-row">
+              <input
+                class="plan-key-input"
+                placeholder="粘贴新的 API Key"
+                bind:value={editKeyValue}
+                spellcheck="false"
+                autocomplete="off"
+              />
+              <button
+                class="mini-btn ok"
+                disabled={!editKeyValue.trim() || plansBusy}
+                onclick={() => confirmEditKey(p)}
+              >
+                保存
+              </button>
+              <button class="mini-btn" onclick={cancelEditKey}>取消</button>
+            </div>
+          {/if}
         {/each}
       </div>
+
+      <details class="plan-add">
+        <summary>添加实例（同品牌可添加多个）</summary>
+        <div class="add-vendors">
+          {#each addableVendors as v (v.id)}
+            <button
+              type="button"
+              class="vendor-opt"
+              class:active={addVendor === v.id}
+              onclick={() => (addVendor = v.id)}
+            >
+              {v.label}
+            </button>
+          {/each}
+        </div>
+        <input
+          class="add-label"
+          placeholder="备注名（可选，如 主号 / 备用）"
+          bind:value={addLabel}
+        />
+        <textarea
+          class="add-key"
+          rows="2"
+          placeholder="粘贴该账号的 API Key"
+          bind:value={addKey}
+          spellcheck="false"
+          autocomplete="off"
+        ></textarea>
+        <div class="add-actions">
+          <button class="btn save" disabled={!addKey.trim() || plansBusy} onclick={addPlan}>
+            添加并刷新
+          </button>
+        </div>
+      </details>
+
       {#if plansError}
         <div class="cookie-error">{plansError}</div>
       {/if}
@@ -291,6 +515,7 @@
     color: #fff;
   }
 
+  /* ── Coding Plan 实例列表 ── */
   .plan-count {
     text-transform: none;
     letter-spacing: 0;
@@ -300,40 +525,201 @@
   .plan-list {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 2px;
   }
-  .plan-opt {
+  .plan-row {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 4px 2px;
+    gap: 6px;
+    padding: 3px 2px;
+    border-radius: 4px;
     font-size: 12px;
     color: var(--text-primary);
-    cursor: pointer;
-    border-radius: 4px;
   }
-  .plan-opt:hover {
+  .plan-row:hover {
     background: var(--dialog-cancel-hover);
   }
-  .plan-opt input {
+  .plan-vis {
+    display: flex;
+    align-items: center;
+    margin: 0;
+  }
+  .plan-vis input {
     accent-color: #2563eb;
     cursor: pointer;
     margin: 0;
   }
-  .plan-opt input:disabled {
+  .plan-vis input:disabled {
     cursor: default;
     opacity: 0.45;
   }
-  .plan-opt input:disabled ~ .plan-name,
-  .plan-opt input:disabled ~ .plan-hint {
-    opacity: 0.6;
+  .plan-vendor {
+    flex: none;
+    width: 72px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
-  .plan-name {
-    font-weight: 500;
+  .plan-label {
+    flex: 1;
+    min-width: 0;
+    padding: 2px 6px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-primary);
+    font-size: 11px;
+    font-family: inherit;
+    outline: none;
+  }
+  .plan-label::placeholder {
+    color: var(--text-muted);
+  }
+  .plan-label:hover {
+    border-color: var(--dialog-cancel-border);
+  }
+  .plan-label:focus {
+    border-color: var(--dialog-input-focus);
+    background: var(--dialog-input-bg);
+  }
+  .plan-tail {
+    flex: none;
+    max-width: 88px;
+    color: var(--text-muted);
+    font-size: 10px;
+    font-family: Consolas, Menlo, monospace;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .plan-hint {
+    flex: none;
     color: var(--text-muted);
+    font-size: 10px;
+  }
+  .mini-btn {
+    flex: none;
+    padding: 2px 7px;
+    border: 1px solid var(--dialog-cancel-border);
+    border-radius: 4px;
+    background: var(--dialog-cancel-bg);
+    color: var(--text-secondary);
+    font-size: 10px;
+    font-family: inherit;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .mini-btn:hover:not(:disabled) {
+    background: var(--dialog-cancel-hover);
+  }
+  .mini-btn:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+  .mini-btn.ok {
+    color: #16a34a;
+    border-color: #16a34a;
+  }
+  /* ↑↓ 调序按钮：更紧凑，给整行留空间 */
+  .mini-btn.move {
+    padding: 2px 5px;
+  }
+  .mini-btn.danger {
+    color: #dc2626;
+  }
+  /* 行内换 Key 输入行 */
+  .plan-key-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 2px 5px 24px;
+  }
+  .plan-key-input {
+    flex: 1;
+    min-width: 0;
+    padding: 3px 8px;
+    border: 1px solid var(--dialog-input-border);
+    border-radius: 4px;
+    background: var(--dialog-input-bg);
+    color: var(--text-primary);
     font-size: 11px;
+    font-family: Consolas, Menlo, monospace;
+    outline: none;
+  }
+  .plan-key-input:focus {
+    border-color: var(--dialog-input-focus);
+  }
+
+  /* 添加实例表单（可折叠） */
+  .plan-add {
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .plan-add summary {
+    cursor: pointer;
+    color: var(--text-secondary);
+    user-select: none;
+  }
+  .add-vendors {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .vendor-opt {
+    flex: 1;
+    padding: 5px 8px;
+    border: 1px solid var(--dialog-cancel-border);
+    border-radius: 6px;
+    background: var(--dialog-cancel-bg);
+    color: var(--text-primary);
+    font-size: 11px;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  .vendor-opt.active {
+    border-color: #2563eb;
+    background: #2563eb;
+    color: #fff;
+  }
+  .add-label {
+    width: 100%;
+    box-sizing: border-box;
+    margin-top: 6px;
+    padding: 5px 8px;
+    border: 1px solid var(--dialog-input-border);
+    border-radius: 6px;
+    background: var(--dialog-input-bg);
+    color: var(--text-primary);
+    font-size: 11px;
+    font-family: inherit;
+    outline: none;
+  }
+  .add-label:focus {
+    border-color: var(--dialog-input-focus);
+  }
+  .add-key {
+    width: 100%;
+    box-sizing: border-box;
+    margin-top: 6px;
+    padding: 5px 8px;
+    border: 1px solid var(--dialog-input-border);
+    border-radius: 6px;
+    background: var(--dialog-input-bg);
+    color: var(--text-primary);
+    font-size: 11px;
+    font-family: Consolas, Menlo, monospace;
+    resize: vertical;
+    outline: none;
+  }
+  .add-key:focus {
+    border-color: var(--dialog-input-focus);
+  }
+  .add-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 6px;
   }
 
   .cookie-state {
@@ -447,6 +833,10 @@
   }
   .save:hover:not(:disabled) {
     background: #1d4ed8;
+  }
+  .save:disabled {
+    opacity: 0.6;
+    cursor: default;
   }
   .done {
     border: none;

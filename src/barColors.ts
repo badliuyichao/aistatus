@@ -16,7 +16,7 @@ import type { ServiceInfo } from "./types";
 export type BarPeriod = "5h" | "week";
 
 export interface BarService {
-  name: string;
+  vendor?: string;
   color?: string;
 }
 
@@ -25,16 +25,17 @@ export function periodOfLabel(label: string): BarPeriod {
   return label.includes("周") ? "week" : "5h";
 }
 
-/** 进度条固定底色：按服务 + 周期取色相；未知服务回退品牌色。 */
+/** 进度条固定底色：按服务商 + 周期取色相；未知服务商回退下发品牌色。
+ *  同品牌多实例共用色相，实例之间靠名称标签区分（颜色编码品牌 + 周期）。 */
 export function barAccent(svc: BarService | undefined, period: BarPeriod = "5h"): string {
-  const name = svc?.name ?? "";
-  if (name.startsWith("GLM")) {
+  const vendor = svc?.vendor ?? "";
+  if (vendor === "glm") {
     return period === "week" ? "#34D399" : "#3B82F6";
   }
-  if (name.startsWith("MiniMax")) {
+  if (vendor === "minimax") {
     return period === "week" ? "#FB923C" : "#D946EF";
   }
-  if (name.startsWith("MiMo")) return "#FF6900";
+  if (vendor === "mimo") return "#FF6900";
   return svc?.color || "#22c55e";
 }
 

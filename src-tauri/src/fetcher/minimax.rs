@@ -16,7 +16,7 @@
 
 use reqwest::header::{ACCEPT, AUTHORIZATION};
 
-use crate::data::{MinimaxResult, QuotaItem};
+use crate::data::{PlanFetch, QuotaItem, ServiceInfo};
 
 const MINIMAX_QUOTA_URL: &str = "https://www.minimaxi.com/v1/api/openplatform/coding_plan/remains";
 
@@ -86,11 +86,12 @@ impl Window {
     }
 }
 
-/// 拉取 MiniMax 配额。无 key/失败返回 None；
-/// API 错误或无数据返回带占位条的 MinimaxResult。
-pub async fn fetch(api_key: &str) -> Option<MinimaxResult> {
+/// 拉取 MiniMax 配额。空 key → Skipped；网络 / HTTP / 解析失败 → Failed；
+/// API 错误或无数据返回 Ok(占位卡片)，401/403 给「API Key 无效」占位。
+pub async fn fetch(api_key: &str) -> PlanFetch {
+    let api_key = api_key.trim();
     if api_key.is_empty() {
-        return None;
+        return PlanFetch::Skipped;
     }
 
     let resp = match crate::fetcher::http_client()
@@ -103,23 +104,26 @@ pub async fn fetch(api_key: &str) -> Option<MinimaxResult> {
         Ok(r) => r,
         Err(e) => {
             eprintln!("[MiniMaxFetcher] network error: {e}");
-            return None;
+            return PlanFetch::Failed;
         }
     };
 
     if !resp.status().is_success() {
-        eprintln!(
-            "[MiniMaxFetcher] HTTP {} (check api_key / rate limit)",
-            resp.status()
-        );
-        return None;
+        let status = resp.status();
+        // 401/403：认证失败（key 无效 / 被删），给明确占位而非 N/A。
+        if status.as_u16() == 401 || status.as_u16() == 403 {
+            eprintln!("[MiniMaxFetcher] HTTP {status} (invalid api key)");
+            return PlanFetch::Ok(placeholder_service("API Key 无效 · 请在设置中检查".into()));
+        }
+        eprintln!("[MiniMaxFetcher] HTTP {status} (check api_key / rate limit)");
+        return PlanFetch::Failed;
     }
 
     let body: MinimaxResp = match resp.json().await {
         Ok(b) => b,
         Err(e) => {
             eprintln!("[MiniMaxFetcher] invalid JSON response: {e}");
-            return None;
+            return PlanFetch::Failed;
         }
     };
 
@@ -128,13 +132,7 @@ pub async fn fetch(api_key: &str) -> Option<MinimaxResult> {
         if let Some(code) = br.status_code {
             if code != 0 {
                 eprintln!("[MiniMaxFetcher] API error in base_resp: status_code={code}");
-                return Some(MinimaxResult {
-                    name: "MiniMax".into(),
-                    r#type: "quota".into(),
-                    icon: "🟠".into(),
-                    color: "#EA580C".into(),
-                    items: placeholder_items(format!("API 错误 {code}")),
-                });
+                return PlanFetch::Ok(placeholder_service(format!("API 错误 {code}")));
             }
         }
     }
@@ -142,13 +140,7 @@ pub async fn fetch(api_key: &str) -> Option<MinimaxResult> {
     let remains = body.model_remains.as_deref().unwrap_or(&[]);
     if remains.is_empty() {
         eprintln!("[MiniMaxFetcher] no model_remains in response (plan not active?)");
-        return Some(MinimaxResult {
-            name: "MiniMax".into(),
-            r#type: "quota".into(),
-            icon: "🟠".into(),
-            color: "#EA580C".into(),
-            items: placeholder_items("暂无用量数据".into()),
-        });
+        return PlanFetch::Ok(placeholder_service("暂无用量数据".into()));
     }
 
     let models = remains;
@@ -164,13 +156,37 @@ pub async fn fetch(api_key: &str) -> Option<MinimaxResult> {
     );
     let weekly = aggregate_window(models, Window::Weekly, "周限额", "无限额", false, Some("∞"));
 
-    Some(MinimaxResult {
+    PlanFetch::Ok(ServiceInfo {
         name: "MiniMax".into(),
         r#type: "quota".into(),
+        vendor: "minimax".into(),
         icon: "🟠".into(),
         color: "#EA580C".into(),
         items: vec![interval, weekly],
+        ..Default::default()
     })
+}
+
+/// 占位卡片（API 错误 / 无数据 / key 无效时）：两条配额条 detail 带原因。
+fn placeholder_service(msg: String) -> ServiceInfo {
+    let item = |label: &str| QuotaItem {
+        label: label.into(),
+        display_value: None,
+        used: 0.0,
+        total: 100.0,
+        unit: "%".into(),
+        detail: msg.clone(),
+    };
+    ServiceInfo {
+        name: "MiniMax".into(),
+        r#type: "quota".into(),
+        vendor: "minimax".into(),
+        icon: "🟠".into(),
+        color: "#EA580C".into(),
+        items: vec![item("5小时限额"), item("周限额")],
+        placeholder: true,
+        ..Default::default()
+    }
 }
 
 /// 聚合一个窗口 → 展示对齐 MiniMax 官网的百分比。
@@ -273,28 +289,6 @@ fn aggregate_window(
         unit: "%".into(),
         detail,
     }
-}
-
-/// 占位条（API 错误 / 无数据时）。
-fn placeholder_items(msg: String) -> Vec<QuotaItem> {
-    vec![
-        QuotaItem {
-            label: "5小时限额".into(),
-            display_value: None,
-            used: 0.0,
-            total: 100.0,
-            unit: "%".into(),
-            detail: msg.clone(),
-        },
-        QuotaItem {
-            label: "周限额".into(),
-            display_value: None,
-            used: 0.0,
-            total: 100.0,
-            unit: "%".into(),
-            detail: msg,
-        },
-    ]
 }
 
 /// 格式化毫秒时长。

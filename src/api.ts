@@ -3,7 +3,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { BalanceData, Theme } from "./types";
+import type { BalanceData, PlanConfig, Theme } from "./types";
 
 // ── commands（前端 → Rust）──
 
@@ -15,8 +15,9 @@ export function refreshNow(): Promise<void> {
   return invoke("refresh_now");
 }
 
-export function openBalanceFile(): Promise<void> {
-  return invoke("open_balance_file");
+// 用系统默认编辑器打开 config.json（Coding Plan 实例 / 主题等用户配置）。
+export function openConfigFile(): Promise<void> {
+  return invoke("open_config_file");
 }
 
 export function getTheme(): Promise<Theme> {
@@ -51,17 +52,18 @@ export function setMimoCookie(cookie: string): Promise<void> {
   return invoke("save_mimo_cookie", { cookie });
 }
 
-// ── 看板可见 Coding Plan（设置对话框用）──
+// ── Coding Plan 实例管理（设置对话框用）──
 
-// 读看板显示的服务 ID 列表（glm / minimax / mimo），对话框打开时回显。
-export function getVisiblePlans(): Promise<string[]> {
-  return invoke<string[]>("get_visible_plans");
+// 读 plan 实例列表（含完整 key，仅用于本地回显，界面只展示尾部指纹）。
+export function getPlans(): Promise<PlanConfig[]> {
+  return invoke<PlanConfig[]>("get_plans");
 }
 
-// 保存看板显示的服务列表（至少一个，后端校验）。
-// 保存后显隐立即生效（后端重发快照），并触发一次刷新补数据。
-export function setVisiblePlans(plans: string[]): Promise<void> {
-  return invoke("save_visible_plans", { plans });
+// 保存 plan 实例列表（至少保留一个实例，后端校验；缺失 id 由后端生成）。
+// 返回后端规范化后的权威列表（前端据此同步新增实例的 id）。
+// 保存后显隐 / 增删立即生效（后端重发快照），并触发一次刷新补数据。
+export function savePlans(plans: PlanConfig[]): Promise<PlanConfig[]> {
+  return invoke<PlanConfig[]>("save_plans", { plans });
 }
 
 // ── events（Rust → 前端）──

@@ -5,8 +5,8 @@
 //! Auth: 浏览器登录 Cookie（接口不接受 API Key；用户在设置对话框粘贴，
 //!       明文存 config.json，见 config::load_mimo_cookie）
 //!
-//! 非官方公开接口（逆向自控制台 plan-manage 页面），返回三态 MimoFetch：
-//!   - NotConfigured：未配置 Cookie
+//! 非官方公开接口（逆向自控制台 plan-manage 页面），返回三态 PlanFetch：
+//!   - Skipped：未配置 Cookie
 //!   - Failed：网络 / HTTP 失败（除 401/403）
 //!   - Ok：正常数据，或业务错误占位条（Cookie 失效给明确提示而非 N/A）
 //!
@@ -20,7 +20,7 @@
 
 use reqwest::header::{ACCEPT, COOKIE};
 
-use crate::data::{MimoFetch, MimoResult, QuotaItem};
+use crate::data::{PlanFetch, QuotaItem, ServiceInfo};
 
 const MIMO_USAGE_URL: &str = "https://platform.xiaomimimo.com/api/v1/tokenPlan/usage";
 const MIMO_DETAIL_URL: &str = "https://platform.xiaomimimo.com/api/v1/tokenPlan/detail";
@@ -79,10 +79,10 @@ struct MimoDetail {
 }
 
 /// 拉取 MiMo Token Plan 用量。
-pub async fn fetch(cookie: &str) -> MimoFetch {
+pub async fn fetch(cookie: &str) -> PlanFetch {
     let cookie = cookie.trim();
     if cookie.is_empty() {
-        return MimoFetch::NotConfigured;
+        return PlanFetch::Skipped;
     }
 
     let resp = match crate::fetcher::http_client()
@@ -95,7 +95,7 @@ pub async fn fetch(cookie: &str) -> MimoFetch {
         Ok(r) => r,
         Err(e) => {
             eprintln!("[MiMoFetcher] network error: {e}");
-            return MimoFetch::Failed;
+            return PlanFetch::Failed;
         }
     };
 
@@ -104,19 +104,19 @@ pub async fn fetch(cookie: &str) -> MimoFetch {
         // 401/403 是登录态问题：Cookie 已失效，给明确提示而非 N/A
         if status.as_u16() == 401 || status.as_u16() == 403 {
             eprintln!("[MiMoFetcher] HTTP {} (cookie expired)", status);
-            return MimoFetch::Ok(placeholder_result(
+            return PlanFetch::Ok(placeholder_service(
                 "Cookie 已失效 · 请在设置中重新粘贴".into(),
             ));
         }
         eprintln!("[MiMoFetcher] HTTP {status}");
-        return MimoFetch::Failed;
+        return PlanFetch::Failed;
     }
 
     let body: MimoResp = match resp.json().await {
         Ok(b) => b,
         Err(e) => {
             eprintln!("[MiMoFetcher] invalid JSON response: {e}");
-            return MimoFetch::Failed;
+            return PlanFetch::Failed;
         }
     };
 
@@ -129,7 +129,7 @@ pub async fn fetch(cookie: &str) -> MimoFetch {
             Some(m) if !m.is_empty() => format!("查询失败 (code {}) · {}", body.code, m),
             _ => format!("查询失败 (code {}) · Cookie 可能已失效", body.code),
         };
-        return MimoFetch::Ok(placeholder_result(msg));
+        return PlanFetch::Ok(placeholder_service(msg));
     }
 
     let items = body
@@ -139,22 +139,24 @@ pub async fn fetch(cookie: &str) -> MimoFetch {
         .unwrap_or_default();
     if items.is_empty() {
         eprintln!("[MiMoFetcher] no usage items in response (plan not active?)");
-        return MimoFetch::Ok(placeholder_result("暂无套餐数据".into()));
+        return PlanFetch::Ok(placeholder_service("暂无套餐数据".into()));
     }
 
     // 周期重置倒计时：detail 接口拿 currentPeriodEnd。独立于主数据，
     // 任何失败只少一段文案（返回 None），不影响卡片。
     let reset_hint = fetch_reset_hint(cookie).await;
 
-    MimoFetch::Ok(MimoResult {
+    PlanFetch::Ok(ServiceInfo {
         name: "MiMo".into(),
         r#type: "quota".into(),
+        vendor: "mimo".into(),
         icon: "🧡".into(),
         color: "#FF6900".into(),
         items: items
             .iter()
             .map(|it| to_quota_item(it, reset_hint.as_deref()))
             .collect(),
+        ..Default::default()
     })
 }
 
@@ -272,10 +274,11 @@ fn compact(n: f64) -> String {
 }
 
 /// 占位结果（Cookie 失效 / 业务错误 / 无数据时）。
-fn placeholder_result(msg: String) -> MimoResult {
-    MimoResult {
+fn placeholder_service(msg: String) -> ServiceInfo {
+    ServiceInfo {
         name: "MiMo".into(),
         r#type: "quota".into(),
+        vendor: "mimo".into(),
         icon: "🧡".into(),
         color: "#FF6900".into(),
         items: vec![QuotaItem {
@@ -286,6 +289,8 @@ fn placeholder_result(msg: String) -> MimoResult {
             unit: "Credits".into(),
             detail: msg,
         }],
+        placeholder: true,
+        ..Default::default()
     }
 }
 

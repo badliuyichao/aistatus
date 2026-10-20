@@ -1,6 +1,8 @@
 # aistatus — AI API 余额监控
 
-桌面常驻悬浮框，监控 GLM 智谱 / MiniMax / 小米 MiMo / DeepSeek 四家 API 余额与配额。
+桌面常驻悬浮框，监控 GLM 智谱 / MiniMax / 小米 MiMo / DeepSeek 的 API 余额与配额。
+**Coding Plan 以「实例」为粒度**：同品牌可配多份（如 2 个 GLM coding plan、2 个 DeepSeek key），
+实例在设置对话框中增删 / 改名 / 换 key / 显隐。
 Tauri 2 + Svelte 5 + TypeScript + Vite 跨平台桌面实现。
 
 > 本文件是项目开发规范的唯一来源。`CLAUDE.md` 仅负责引用本文件，
@@ -33,11 +35,13 @@ Tauri 2 + Svelte 5 + TypeScript + Vite 跨平台桌面实现。
 ## 技术栈
 
 - **前端**：Svelte 5（runes）+ TypeScript + Vite 6，目标 `es2021`
-- **后端**：Rust + Tauri 2，`tokio` + `reqwest` 并发拉取四家 API
-- **存储**：用户数据目录下 `config.json`（主题、悬浮条位置、看板显示的 Coding Plan、MiMo Cookie）+ `balance.json`（余额数据模板）
-- **API Key**：GLM / MiniMax / DeepSeek 三家 key **编译期加密硬编码**进二进制（`scripts/encrypt-keys.mjs` 读本机 `src-tauri/keys.local.json` 明文 → XOR 加密 → `src-tauri/secrets.enc` 密文提交 git → `build.rs` 编译期注入字节数组 → `secrets.rs` 运行期解密）。明文 key 不出现在源码 / 二进制字符串表（`strings` 扫不到），挡住静态逆向；用户无需也无法配置 key。`keys.local.json` 是明文源，已 `.gitignore`，绝不提交。**`deepseek` 是可选字段**：没放 key 时 `secrets.enc` 不含 `encDeepseek`，编译出的程序不显示 DeepSeek 卡片。
-- **MiMo Cookie（例外，不走编译期加密）**：小米 MiMo 的用量接口（`platform.xiaomimimo.com/api/v1/tokenPlan/usage`，逆向自控制台、非官方公开 API）**不接受 API Key，只认浏览器登录 Cookie**，因此由用户**运行期配置**：设置对话框粘贴（支持纯值 / `Cookie:` 前缀 / cURL 整段三种形态，`normalize_cookie` 清洗）→ 明文存 `config.json` 的 `mimo.cookie` → 保存即触发刷新。每次刷新现读 config，无需缓存失效。Cookie 会过期，失效时卡片显示提示，需重新粘贴。明文存储是经确认的决策：config.json 只落用户本机数据目录、不进 git，与编译期加密（防 key 进分发包）的威胁模型不同。
-- **DeepSeek 余额（余额型服务，非配额型）**：官方公开接口 `GET api.deepseek.com/user/balance`（Bearer key），返回 `is_available` + `balance_infos[]`（`currency` / `total_balance` / `granted_balance` / `topped_up_balance`，**金额是字符串**）。DeepSeek 是纯 prepaid 按量计费，没有时间窗口 / 套餐额度概念，**没有「已用百分比」语义**：主窗口走 `ServiceInfo` 的 balance 分支（大号金额 + 充值 / 赠送明细），悬浮条显示金额而非进度条（金额按余额阈值着色并附状态标签：安全 ≥¥50 绿 / 预警 ¥10–<¥50 黄 / 危险 <¥10 红；错误占位不标状态）。key 与 GLM/MiniMax 同走编译期加密，但属**可选服务**（三态 `DeepseekFetch`）：未内置 key 不出卡片；401 显示「API Key 无效」占位、402/503 显示「余额不足或服务繁忙」占位（对齐 MiMo Cookie 失效的占位思路，比 N/A 可诊断）。多币种时优先取 CNY 条目。
+- **后端**：Rust + Tauri 2，`tokio` + `reqwest` 并发拉取全部 plan 实例
+- **存储**：用户数据目录下 `config.json`（主题、悬浮条位置、**plans 实例列表**——含各实例的 key / MiMo Cookie / 显隐，见下）。旧版 `balance.json` 已退役：快照直接由 plans 配置 + 拉取结果生成（`snapshot.rs`），不再有模板文件与按名称合并。
+- **Coding Plan 实例（核心模型）**：`config.json` 的 `plans` 数组，每项 `{ id, vendor, label, key, cookie, visible, builtin? }`——`id` 为 `{vendor}-{6位hex}` 稳定实例 ID（后端 `normalize_plans` 生成，卡片 / 悬浮条 / 显隐都以它标识，同品牌多实例各占一卡一行）；`vendor` ∈ `glm / minimax / mimo / deepseek`；glm/minimax/deepseek 用 `key` 字段、mimo 用 `cookie` 字段；`label` 用户备注名（区分同品牌实例）。**两类实例**：①「内置实例」（分发场景）——`builtin: N` 引用编译进二进制的该品牌第 N 个 key，`key` 字段**恒为空、永不落盘**，运行期拉取时才从密文解密（`PlanConfig::credential()`）；②「自配实例」——key 明文存 config.json（与 Cookie 同威胁模型：只落本机数据目录、不进 git），每轮刷新现读文件，增删改即时生效。快照出口（`get_services` / `services-updated`）按每实例 `visible` 过滤。`load_plans` 每轮做「内置 key 明文自清理」：发现与内置 key 相同的明文实例自动转 builtin 引用并落盘清除（旧格式升级 / 重复粘贴收敛）。
+- **编译期加密（内置实例的凭据源）**：`scripts/encrypt-keys.mjs` + `secrets.enc` + `build.rs` + `secrets.rs` 链路。keys.local.json 每个品牌字段支持**数组**（同品牌多 key，如 `"glm": [主key, 备用key]`，兼容单字符串），按序加密写入 secrets.enc 的密文数组；`secrets.rs` 暴露 `glm_keys() / minimax_keys() / deepseek_keys() -> Vec<String>`，序号即 `builtin` 取值。config.json 尚无 `plans` 字段时（旧版升级 / 全新环境首启）按内置 key 列表播种实例（`config.rs::migrate_seed_plans`）。`build.rs` 对 secrets.enc 缺失降级为警告 + 空列表（无内置 key 也能构建，实例全部走运行期配置）。
+- **MiMo Cookie**：小米 MiMo 的用量接口（`platform.xiaomimimo.com/api/v1/tokenPlan/usage`，逆向自控制台、非官方公开 API）**不接受 API Key，只认浏览器登录 Cookie**：设置对话框粘贴（支持纯值 / `Cookie:` 前缀 / cURL 整段三种形态，`normalize_cookie` 清洗）→ 存 plans 中 `vendor=="mimo"` 实例的 `cookie` 字段（`save_mimo_cookie` 命令签名不变，内部改走 plans）→ 保存即触发刷新。Cookie 过期显示明确提示条，需重新粘贴。
+- **DeepSeek 余额（余额型服务，非配额型）**：官方公开接口 `GET api.deepseek.com/user/balance`（Bearer key），返回 `is_available` + `balance_infos[]`（`currency` / `total_balance` / `granted_balance` / `topped_up_balance`，**金额是字符串**）。DeepSeek 是纯 prepaid 按量计费，没有时间窗口 / 套餐额度概念，**没有「已用百分比」语义**：主窗口走 `ServiceInfo` 的 balance 分支（大号金额 + 充值 / 赠送明细），悬浮条显示金额而非进度条（金额按余额阈值着色并附状态标签：安全 ≥¥50 绿 / 预警 ¥10–<¥50 黄 / 危险 <¥10 红；错误占位不标状态）。每个 DeepSeek 实例一张余额卡（可配多个 key）。多币种时优先取 CNY 条目。
+- **fetcher 三态（`PlanFetch`，四家统一）**：空凭据 → `Skipped`（不出卡片）；网络 / HTTP / 解析失败 → `Failed`（卡片 loading 显示 N/A）；成功或业务错误 → `Ok(ServiceInfo)`。**认证失败与无数据给明确占位提示而非 N/A**——key 为用户粘贴，必须可诊断：GLM 的认证失败走 **HTTP 200 + 业务码**（`code=401/403`，不是 HTTP 状态码！），按业务码映射「API Key 无效 · 请在设置中检查」；账号无 plan 数据（HTTP 200 但 limits 为空 / 解析出 0 条）显示「未查询到 Coding Plan 用量 · 请确认该账号已开通」；MiniMax / DeepSeek 走 HTTP 401/403（DeepSeek 402/503 显示「余额不足或服务繁忙」）；MiMo Cookie 失效显示「请在设置中重新粘贴」。**GLM 配额解析同时接受 `TOKENS_LIMIT` 与 `CREDIT_LIMIT`**——新版积分制 Coding Plan（如 lite 档）返回 `CREDIT_LIMIT`，字段语义与 token 版一致（`usage`=总量、`currentValue`=已用、`unit/number` 标识窗口：3/5=5小时、6/1=周），仅单位显示为「积分」；出现新 `type` 时会静默跳过（解析出 0 条走上述占位），接入新类型改 `fetcher/glm.rs` 的 limit_type 分支。
 - **外观**：`window-vibrancy` 原生毛玻璃（Win acrylic/mica、mac vibrancy），失败降级 CSS
 
 ## 品牌图标（Lobe Icons）
@@ -46,7 +50,7 @@ Tauri 2 + Svelte 5 + TypeScript + Vite 跨平台桌面实现。
 
 1. 到 <https://lobehub.com/icons> 搜品牌，记下 slug（如 `zhipu`、`minimax`、`xiaomimimo`、`deepseek`）
 2. `node scripts/fetch-icon.mjs <slug> [保存名]` —— 从 unpkg 下载 640×640 light PNG 到 `src/assets/`（自动校验 PNG 魔数，unpkg 失败换 npmmirror 国内源）
-3. `ServiceCard.svelte` 的 `logo()` 加 `startsWith` 分支；`balance.json` 条目的 `icon` 字段保留 emoji 作无图兜底
+3. 前端按 `vendor` 稳定 ID 接入三处：`ServiceCard.svelte` 的 `logo()` switch 加分支、`barColors.ts` 的 `barAccent()` 加色相分支、`FloatWidget.svelte` 的 `brandShort()` 加短名；fetcher 产出的 `ServiceInfo.icon` emoji 作无图兜底
 
 约定统一用 **light 单图 640×640 PNG**（现有 `glm.png` / `minimax.png` / `mimo.png` / `deepseek.png` 同款，项目早期图标与该库同源）。手动下载直链：`https://unpkg.com/@lobehub/icons-static-png@latest/light/<slug>.png`（另有 `dark/`、`*-color.png`、`*-text.png` 变体；SVG 在 `@lobehub/icons-static-svg` 包的 `icons/<slug>.svg`）。图标版权归各品牌方，本工具内为指示性使用。
 
@@ -55,27 +59,27 @@ Tauri 2 + Svelte 5 + TypeScript + Vite 跨平台桌面实现。
 ```
 src/                         前端
   App.svelte                 主壳：标题栏 + 卡片列表 + 页脚 + 右键菜单
-  components/                ServiceCard / ConfigDialog / TitleBar / BalanceView / QuotaRow
-  barColors.ts               进度条配色（按服务 + 周期分色，悬浮条与看板共用）
-  stores/services.svelte.ts  余额数据 store（services-updated 事件 + 文件变更）
+  components/                ServiceCard / ConfigDialog / TitleBar / BalanceView / QuotaRow / FloatWidget
+  barColors.ts               进度条配色（按 vendor + 周期分色，悬浮条与看板共用）
+  stores/services.svelte.ts  余额数据 store（services-updated 事件订阅）
   api.ts                     封装 Tauri IPC（commands + events）
-  types.ts                   共享类型
+  types.ts                   共享类型（ServiceInfo 含 id/vendor/label；PlanConfig 实例配置）
 src-tauri/
   src/
     lib.rs                   入口：窗口 / 托盘 / 定位 / 60s 定时刷新
     backdrop.rs              原生毛玻璃
-    commands.rs              Tauri commands（get_services / refresh_now / 主题 / 悬浮条 / 看板显隐 / MiMo Cookie …）
-    config.rs                config.json 读写（主题、悬浮条位置、MiMo Cookie）
-    secrets.rs               内置 API Key 运行期解密（编译期注入密文）
-    data.rs / merge.rs / state.rs          数据模型 / 合并 / 状态与拉取调度
-    fetcher/                 各家 API 抓取器（glm.rs / minimax.rs / mimo.rs / deepseek.rs）
-  resources/balance.json     内嵌首启模板（GLM / MiniMax / MiMo / DeepSeek 占位卡片）
+    commands.rs              Tauri commands（get_services / get+save_plans / 主题 / 悬浮条 / MiMo Cookie / 打开配置文件 …）
+    config.rs                config.json 读写（主题、悬浮条位置、plans 实例列表 + 播种迁移 + 规范化）
+    snapshot.rs              按 plans 并发拉取 + 组装快照 + 出口可见性过滤（fetch_plan / build_snapshot / filter_visible）
+    secrets.rs               内置 API Key 解密（仅作升级迁移播种源）
+    data.rs / state.rs       数据模型（ServiceInfo / PlanFetch）/ 状态与拉取调度
+    fetcher/                 各家 API 抓取器（glm.rs / minimax.rs / mimo.rs / deepseek.rs，统一返回三态 PlanFetch）
   tauri.conf.json            Tauri 配置（窗口、bundle、identifier）
   Cargo.toml                 Rust 依赖；version 由 sync-version 维护，勿手改
 scripts/
   sync-version.mjs           版本号同步（package.json → tauri.conf.json + Cargo.toml）
   build.mjs                  构建 wrapper：自动确保 cargo 在 PATH
-  encrypt-keys.mjs           API Key 编译期加密（keys.local.json → secrets.enc）
+  encrypt-keys.mjs           API Key 编译期加密（可选：生成播种源 secrets.enc，见「API Key 与播种」）
   fetch-icon.mjs             品牌图标下载（Lobe Icons CDN → src/assets，见「品牌图标」）
 ```
 
@@ -88,7 +92,7 @@ pnpm tauri dev        # 桌面 dev（热重载）
 pnpm build:tauri      # ★ 打包发布（自动处理 cargo PATH，见下）
 pnpm sync-version     # 手动同步版本号（build 前会自动跑）
 pnpm check            # svelte-check 类型检查
-node scripts/encrypt-keys.mjs  # API Key 加密（换 key 时跑，见下「API Key 编译期注入」）
+node scripts/encrypt-keys.mjs  # 可选：生成播种源密文（见下「API Key 与播种」）
 node scripts/fetch-icon.mjs <slug> [保存名]  # 下载品牌图标（见「品牌图标」）
 ```
 
@@ -129,24 +133,33 @@ node scripts/fetch-icon.mjs <slug> [保存名]  # 下载品牌图标（见「品
 > ⚠️ 「用 `&&` 串联 + `| tail` 看输出」时，cargo 失败也会被 `tail` 吞掉退出码，看起来像成功。
 > 检查请用 `cargo check; echo $?`，或 `&& echo "exit=$?"` 之前不要接管道。
 
-### API Key 编译期注入（重要）
+### API Key 与内置实例（分发场景，重要）
 
-GLM / MiniMax / DeepSeek 三家 key **不进 git、不由用户配置**，走编译期加密硬编码（DeepSeek 可选：keys.local.json 不放 `deepseek` 字段则产物不含该 key、不显示 DeepSeek 卡片）。链路：
+Key 有两类来源，对应两种使用方式：
+
+**① 内置实例（开发者分发 exe 给他人时用）**——key 只以密文存在于二进制，**永不落盘**：
 
 ```
-keys.local.json（明文，.gitignore，仅本机）
-  └─ scripts/encrypt-keys.mjs ──► secrets.enc（密文，提交 git）
+keys.local.json（明文，.gitignore，仅本机；每品牌支持数组 = 同品牌多 key）
+  └─ scripts/encrypt-keys.mjs ──► secrets.enc（密文数组，提交 git）
                                    └─ build.rs（编译期）──► OUT_DIR/secrets.rs（字节数组常量）
-                                                                   └─ src/secrets.rs（运行期 XOR 解密）
+                                                                   └─ src/secrets.rs（运行期解密）
 ```
 
-**换 key / 换机器 / 全新 clone 时必须做**（否则 `cargo build` / `pnpm tauri dev` 报错「找不到 secrets.enc」）：
+config.json 里内置实例只存 `{builtin: 序号}` 引用 + 备注 / 显隐，**不含 key 明文**——收件人打开 config.json 也看不到 key；拉取时才从二进制密文解密、仅在内存短暂存在。安全边界与旧版一致：挡 strings / 静态扫描提取；不防有决心的逆向或运行期内存 dump（客户端密钥的固有边界）。
 
-1. 创建本机明文源 `src-tauri/keys.local.json`（格式 `{"glm": "...", "minimax": "...", "deepseek": "可选"}`）。此文件**绝不提交**，丢了只能去各家开放平台重新申请。
-2. 跑 `node scripts/encrypt-keys.mjs` 生成 `src-tauri/secrets.enc`（密文，提交）。
-3. 正常编译。
+**② 自配实例（自己用 / 收件人加自己的 key）**——在设置对话框添加，key 明文存 config.json 的 `plans` 数组，不进 git、不分发，威胁模型与 MiMo Cookie 相同。换 Key 会把内置实例「断开内置」转为自配实例。
 
-> ⚠️ `keys.local.json` 是唯一明文源，务必自行安全备份（密码管理器等）。仓库里只有密文，clone 后无法反推明文——这是设计意图（安全性），但意味着明文 key 的保管责任在开发者本地。
+**开发者工作流（换 key / 加 key / 出分发版）**：
+
+1. 编辑 `src-tauri/keys.local.json`：`{"glm": ["主key", "备用key"], "minimax": ["..."], "deepseek": ["..."]}`（deepseek 可选；数组顺序 = builtin 序号，**改顺序会改变已有内置实例的对应关系**，插在末尾最安全）。**绝不提交**，自行安全备份。
+2. `node scripts/encrypt-keys.mjs` 重新生成 `secrets.enc`（提交 git）。
+3. 重新编译。开发者本机 config.json 里已有的同值明文实例会在下次启动时**自动转为 builtin 引用**并清除明文（自清理，无需手动改）。
+4. `pnpm build:tauri` 出分发包：收件人首启自动按内置 key 列表播种实例（继承旧 `visiblePlans` 显隐与 `mimo.cookie`），无需配置任何 key。
+
+**全新 clone / keyless 构建**：`secrets.enc` 缺失时 `build.rs` 只警告不报错（空列表），构建出的程序无内置实例，全部在设置对话框运行期配置。
+
+> ⚠️ `keys.local.json` 是明文源，务必自行安全备份（密码管理器等）。运行期配置的 key 存在用户本机 config.json，同样建议用户自行备份该文件。
 
 ### 打包注意
 
@@ -170,11 +183,12 @@ keys.local.json（明文，.gitignore，仅本机）
 
 - 窗口默认隐藏，托盘菜单「打开主界面」唤起；mac 关闭按钮=隐藏（常驻托盘），仅「退出」结束进程。
 - 定位：Windows 锚主屏右下角（避任务栏，逻辑像素×缩放）；mac 跟随托盘图标。
-- 悬浮条显示 GLM / MiniMax 的「5小时限额」+「周限额」（各自在同一行内上下两条 4px 进度条，不增加窗口高度；上=5小时、下=本周，不显示右侧百分比文字，数值在 tooltip；进度条填充为同一色相浅→深渐变，已用% 越高露出的颜色越深。色相按服务 + 周期固定：GLM（冷色组）5小时电光蓝 `#3B82F6` / 周翡翠绿 `#34D399`，MiniMax（暖色组）5小时亮洋红 `#D946EF` / 周珊瑚橙 `#FB923C`，MiMo 橙 `#FF6900`；先按冷暖区分两家、再看组内色相区分「5小时 / 周」，不随用量在绿→黄之间跳变；仅 ≥80% 接近耗尽时统一转红 `#ef4444` 告警）、MiMo 的「Token Plan 套餐」已用%，以及 DeepSeek 的余额金额（不放进度条——余额无分母，金额按余额阈值着色：红 <¥10 / 黄 <¥50；明细进 tooltip）；MiMo 未配置 Cookie / DeepSeek 未内置 key 时对应行隐藏。
-- 主看板配额行（`QuotaRow`）的进度条与悬浮条共用 `src/barColors.ts`：同样按服务 + 周期分色、同色相浅→深渐变、≥80% 转红；`periodOfLabel` 按 label 是否含「周」判定 `week`，MiMo「Token Plan 套餐」等其余条目按单条处理。主看板的卡片标题 / 图标仍用各服务品牌色（`service.color`），与数据条颜色解耦。
-- 看板显示哪几个 Coding Plan 由用户在设置对话框勾选（`config.json` 的 `visiblePlans`，存稳定 ID `glm` / `minimax` / `mimo` / `deepseek`，与卡片显示名解耦；**至少一个**，后端 `save_visible_plans` 校验非空，前端把最后一项禁用）。过滤在**展示层**（快照出口：`get_services` / `services-updated` emit）进行，快照始终保留全量——主窗口与悬浮条同步显隐，取消隐藏可立即用缓存回显、随后刷新补数据；后台仍照常拉取全部四家。MiMo 勾选后仍需配置 Cookie 才会出卡片，DeepSeek 勾选后仍需编译期内置 key 才会出卡片。
-- 悬浮条高度随可见服务行数自适应（基础 20 + 每行 20 逻辑像素：1 行 40 / 2 行 60 / 3 行 80 / 4 行 100，`state.rs::fit_float_window`，每次刷新后调整；用户未拖过时重锚平台默认角，避免增高压到任务栏。mac 为顶部锚定，`set_size` 后左上角不动，重锚逻辑已按平台分支但未在 mac 实测）。
+- **多实例渲染**：每条 plan 实例一张卡片 / 悬浮条一行，按 plans 配置顺序排列。卡片标题 = 品牌展示名（GLM 带「· {LEVEL}」套餐后缀）+ 用户 `label`（弱化色追加）；悬浮条行标签 = **品牌短名 + label**（如「GLM 主账号」，无 label 就是品牌短名）——品牌必须可见，备注只做区分；品牌列**统一固定 76px**（各行进度条起点对齐；`min-width: 0` 必须显式声明，否则 nowrap 长文字把 grid 项撑出列外压到进度条，超长备注截断省略）。前端图标 / 配色 / 分组按 `ServiceInfo.vendor` 稳定 ID 匹配，不依赖显示名；卡片列表 each key 用 `svc.id`。
+- 悬浮条数据驱动渲染可见服务实例：quota 型若 items 含「5小时限额」+「周限额」两条则同一行上下双 4px 进度条（GLM / MiniMax；上=5小时、下=本周，数值在 tooltip），否则单条 + 右侧百分比（MiMo 的「Token Plan 套餐」）；balance 型（DeepSeek）不放进度条——余额无分母，右对齐金额按阈值着色（红 <¥10 / 黄 <¥50；明细进 tooltip）。进度条填充为同色相浅→深渐变，色相按 vendor + 周期固定（GLM 冷色组 5小时电光蓝 `#3B82F6` / 周翡翠绿 `#34D399`，MiniMax 暖色组亮洋红 `#D946EF` / 珊瑚橙 `#FB923C`，MiMo 橙 `#FF6900`；**同品牌多实例共用色相，靠行标签区分**）；不随用量在绿→黄之间跳变，仅 ≥80% 统一转红 `#ef4444` 告警。
+- 主看板配额行（`QuotaRow`）的进度条与悬浮条共用 `src/barColors.ts`：同样按 vendor + 周期分色、同色相浅→深渐变、≥80% 转红；`periodOfLabel` 按 label 是否含「周」判定 `week`，MiMo「Token Plan 套餐」等其余条目按单条处理。卡片标题 / 图标仍用各实例品牌色（`service.color`），与数据条颜色解耦。
+- **实例显隐、增删与排序**在设置对话框「Coding Plan 管理」区完成（`config.json` 的 `plans`，每实例 `visible`；**至少保留一个实例、至少一个可见**，后端 `save_plans` 校验、前端禁用最后一项的删除 / 取消勾选）。**显示顺序 = plans 数组顺序**（主窗口卡片与悬浮条一致），列表行内 ↑↓ 按钮调序、整表乐观保存。过滤在**展示层**（快照出口：`get_services` / `services-updated` emit）进行，快照始终保留全量——主窗口与悬浮条同步显隐，取消隐藏可立即用缓存回显、随后刷新补数据；隐藏实例后台仍照常拉取。MiMo 实例需 Cookie 才出卡片，其余实例需 key（内置实例凭据走编译期密文）。右键菜单「编辑配置文件」用系统默认编辑器打开 config.json。
+- 悬浮条宽 220（品牌列 76 + 进度条 ~118；改宽需同步 `state.rs` 的 `FLOAT_WIDTH` 与 `tauri.conf.json` 的 float 窗口宽度两处）；高度随可见服务行数自适应（基础 20 + 每行 20 逻辑像素，多实例按实际行数增长，`state.rs::fit_float_window`，每次刷新后调整；宽度不符时一并修正，保存过位置的窗口加宽后左移补偿防止贴右缘出屏；用户未拖过时重锚平台默认角，避免增高压到任务栏。mac 为顶部锚定，`set_size` 后左上角不动，重锚逻辑已按平台分支但未在 mac 实测）。
 - 窗口高度自适应卡片数量（`fit_to_content` command + 前端 `ResizeObserver`）。
-- 刷新：启动一次 + 每 60s 定时；F5 手动刷新；编辑 `balance.json` 也会触发刷新。
-- MiMo 卡片是可选服务（三态）：未配置 Cookie 不显示卡片；偶发拉取失败显示 N/A；Cookie 失效显示明确提示条。MiMo 的 `QuotaItem.used/total` 是**原始额度**（非 0–100 百分比），API 的 `percent` 是 0–1 小数，展示百分比需自行换算（见 `to_quota_item` 与悬浮条 `mimoPct`）。周期重置倒计时来自 `tokenPlan/detail` 的 `currentPeriodEnd`（北京时间字符串），换算成「N天后重置」拼进 Token Plan 套餐条的 detail；该请求失败只少文案，不影响主数据。
-- DeepSeek 卡片是可选服务（三态，见 `DeepseekFetch`）：未内置 key 不显示卡片；偶发拉取失败显示 N/A；401 key 无效 / 402、503 余额不足或繁忙显示明确占位提示（占位时金额显示 ¥0.00，原因在 detail）。余额型走 `ServiceInfo` 的 balance 分支（`BalanceView` 大号金额 + detail 充值 / 赠送拆分）；金额旁显示状态标签（安全 ≥¥50 绿 / 预警 ¥10–<¥50 黄 / 危险 <¥10 红），`placeholder=true` 的错误占位不显示状态；`is_available=false` 时 detail 附「余额不足，请及时充值」。
+- 刷新：启动一次 + 每 60s 定时；F5 手动刷新。plans 每轮现读 config.json，实例增删 / 换 key / 改 Cookie 无需重启。
+- MiMo 卡片是可选服务（三态 `PlanFetch`）：未配置 Cookie 不显示卡片；偶发拉取失败显示 N/A；Cookie 失效显示明确提示条。MiMo 的 `QuotaItem.used/total` 是**原始额度**（非 0–100 百分比），API 的 `percent` 是 0–1 小数，展示百分比需自行换算（见 `to_quota_item` 与悬浮条 `usedPct`）。周期重置倒计时来自 `tokenPlan/detail` 的 `currentPeriodEnd`（北京时间字符串），换算成「N天后重置」拼进 Token Plan 套餐条的 detail；该请求失败只少文案，不影响主数据。
+- DeepSeek 每实例一张余额卡（可配多个 key）：空 key 不显示卡片（`Skipped`）；偶发拉取失败显示 N/A；401 key 无效 / 402、503 余额不足或繁忙显示明确占位提示（占位时金额显示 ¥0.00，原因在 detail）。余额型走 `ServiceInfo` 的 balance 分支（`BalanceView` 大号金额 + detail 充值 / 赠送拆分）；金额旁显示状态标签（安全 ≥¥50 绿 / 预警 ¥10–<¥50 黄 / 危险 <¥10 红），`placeholder=true` 的错误占位不显示状态；`is_available=false` 时 detail 附「余额不足，请及时充值」。

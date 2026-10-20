@@ -1,12 +1,12 @@
 //! GLM 智谱AI Coding Plan 用量查询。
 //!
 //! URL:    https://open.bigmodel.cn/api/monitor/usage/quota/limit
-//! Auth:   Bearer <api_key>
+//! Auth:   Bearer <api_key>（用户在设置对话框运行期配置，见 config::PlanConfig）
 //! 返回配额型（type: quota），带 level 套餐档位。
 //!
 //! 关键解析逻辑：
-//!   - body.code != 200 或无 data → None
-//!   - data.limits 为空 → None
+//!   - body.code != 200 或无 data → Failed
+//!   - data.limits 为空 → Failed
 //!   - limit.type == "TIME_LIMIT" 且 usage>0 → 「工具调用」次条（绝对值，追加末尾）
 //!   - limit.type == "TOKENS_LIMIT"：
 //!       unit==3,num==5 → 「5小时限额」
@@ -14,10 +14,13 @@
 //!       否则          → 「Token限额」
 //!     有 usage 绝对值 → tokens 条；否则 → 百分比条
 //!   - level 非空 → 卡片标题显示「GLM 智谱AI · {LEVEL 大写}」
+//!
+//! 错误语义（PlanFetch 三态）：HTTP 401/403 → Ok(占位「API Key 无效」，
+//! key 为用户粘贴、拼错可诊断）；其余网络 / HTTP / 解析失败 → Failed（卡片 N/A）。
 
 use reqwest::header::{ACCEPT, AUTHORIZATION};
 
-use crate::data::{GlmResult, QuotaItem};
+use crate::data::{PlanFetch, QuotaItem, ServiceInfo};
 
 const GLM_QUOTA_URL: &str = "https://open.bigmodel.cn/api/monitor/usage/quota/limit";
 
@@ -58,10 +61,11 @@ struct GlmLimit {
     next_reset_time: Option<f64>,
 }
 
-/// 拉取 GLM 配额。无 key / 失败 / 无数据返回 None。
-pub async fn fetch(api_key: &str) -> Option<GlmResult> {
+/// 拉取 GLM 配额。空 key → Skipped；失败 → Failed；成功 / 占位 → Ok。
+pub async fn fetch(api_key: &str) -> PlanFetch {
+    let api_key = api_key.trim();
     if api_key.is_empty() {
-        return None;
+        return PlanFetch::Skipped;
     }
 
     let resp = match crate::fetcher::http_client()
@@ -74,37 +78,56 @@ pub async fn fetch(api_key: &str) -> Option<GlmResult> {
         Ok(r) => r,
         Err(e) => {
             eprintln!("[GlmFetcher] network error: {e}");
-            return None;
+            return PlanFetch::Failed;
         }
     };
 
     if !resp.status().is_success() {
-        eprintln!(
-            "[GlmFetcher] HTTP {} (check api_key / rate limit)",
-            resp.status()
-        );
-        return None;
+        let status = resp.status();
+        // 401/403：认证失败（key 无效 / 被删）。key 为用户运行期配置，
+        // 给明确占位提示而非 N/A（对齐 DeepSeek / MiMo 的处理思路）。
+        if status.as_u16() == 401 || status.as_u16() == 403 {
+            eprintln!("[GlmFetcher] HTTP {status} (invalid api key)");
+            return PlanFetch::Ok(placeholder_service("API Key 无效 · 请在设置中检查".into()));
+        }
+        eprintln!("[GlmFetcher] HTTP {status} (check api_key / rate limit)");
+        return PlanFetch::Failed;
     }
 
     let body: GlmResp = match resp.json().await {
         Ok(b) => b,
         Err(e) => {
             eprintln!("[GlmFetcher] invalid JSON response: {e}");
-            return None;
+            return PlanFetch::Failed;
         }
     };
 
-    // code != 200 或无 data → None
+    // code != 200：GLM 的认证失败走 HTTP 200 + 业务码（如 code=401），
+    // 不产生非 2xx 状态——按业务码映射占位，key 为用户配置必须可诊断。
     if body.code != 200 {
         eprintln!("[GlmFetcher] unexpected response: code={}", body.code);
-        return None;
+        return PlanFetch::Ok(match body.code {
+            401 | 403 => placeholder_service("API Key 无效 · 请在设置中检查".into()),
+            code => placeholder_service(format!(
+                "接口返回异常 (code {code}) · 请稍后重试或在设置中检查 Key"
+            )),
+        });
     }
-    let data = body.data?;
+    let Some(data) = body.data else {
+        // 认证通过（HTTP 200 + code 200）但没有数据：多为该账号未开通 Coding Plan。
+        // 给明确占位而非 N/A——key 为用户配置，必须可诊断（对齐 MiMo/DeepSeek 的处理）。
+        eprintln!("[GlmFetcher] 200 but no data in response");
+        return PlanFetch::Ok(placeholder_service(
+            "未查询到 Coding Plan 用量 · 请确认该账号已开通".into(),
+        ));
+    };
     let level = data.level;
 
     if data.limits.is_empty() {
         eprintln!("[GlmFetcher] no limits in response (Coding Plan not active?)");
-        return None;
+        return PlanFetch::Ok(placeholder_service(
+            "未查询到 Coding Plan 用量 · 请确认该账号已开通".into(),
+        ));
     }
 
     let now_ms = now_ms();
@@ -141,15 +164,26 @@ pub async fn fetch(api_key: &str) -> Option<GlmResult> {
             continue;
         }
 
-        if limit.limit_type == "TOKENS_LIMIT" {
-            // TOKENS_LIMIT 始终进入处理；percentage 缺省为 0。
+        if limit.limit_type == "TOKENS_LIMIT" || limit.limit_type == "CREDIT_LIMIT" {
+            // 新版积分制 Coding Plan（level lite 等）返回 CREDIT_LIMIT，
+            // 字段语义与 TOKENS_LIMIT 一致（usage=总量、currentValue=已用、
+            // unit/number 标识窗口），仅单位不同——同一条分支解析。
+            // 两者都始终进入处理；percentage 缺省为 0。
+            let is_credit = limit.limit_type == "CREDIT_LIMIT";
             let label = match (limit.unit.unwrap_or(0), limit.number.unwrap_or(0)) {
                 (3, 5) => "5小时限额",
                 (6, 1) => "周限额",
-                _ => "Token限额",
+                _ => {
+                    if is_credit {
+                        "积分限额"
+                    } else {
+                        "Token限额"
+                    }
+                }
             };
+            let unit_name = if is_credit { "积分" } else { "tokens" };
 
-            // 有绝对值 → tokens 条
+            // 有绝对值 → 数量条（tokens / 积分）
             if let Some(t) = total_val {
                 if t > 0.0 {
                     let used = used_val.unwrap_or(0.0);
@@ -158,7 +192,7 @@ pub async fn fetch(api_key: &str) -> Option<GlmResult> {
                         display_value: None,
                         used,
                         total: t,
-                        unit: "tokens".into(),
+                        unit: unit_name.into(),
                         detail: format!(
                             "已用 {} / {} ({}%)",
                             fmt_tokens(used),
@@ -192,17 +226,49 @@ pub async fn fetch(api_key: &str) -> Option<GlmResult> {
     }
 
     if items.is_empty() {
-        return None;
+        eprintln!("[GlmFetcher] limits parsed to 0 usable items");
+        return PlanFetch::Ok(placeholder_service(
+            "未查询到 Coding Plan 用量 · 请确认该账号已开通".into(),
+        ));
     }
 
-    Some(GlmResult {
-        name: "GLM 智谱AI".into(),
+    // 标题后缀：level 非空 → 「GLM 智谱AI · {LEVEL 大写}」
+    let name = match level.as_str() {
+        "" => "GLM 智谱AI".to_string(),
+        lv => format!("GLM 智谱AI · {}", lv.to_uppercase()),
+    };
+
+    PlanFetch::Ok(ServiceInfo {
+        name,
         r#type: "quota".into(),
+        vendor: "glm".into(),
         icon: "🔷".into(),
         color: "#2563EB".into(),
-        level: if level.is_empty() { None } else { Some(level) },
         items,
+        ..Default::default()
     })
+}
+
+/// 401/403 占位卡片：两条配额条 detail 带原因，保证提示可见。
+fn placeholder_service(msg: String) -> ServiceInfo {
+    let item = |label: &str| QuotaItem {
+        label: label.into(),
+        display_value: None,
+        used: 0.0,
+        total: 100.0,
+        unit: "%".into(),
+        detail: msg.clone(),
+    };
+    ServiceInfo {
+        name: "GLM 智谱AI".into(),
+        r#type: "quota".into(),
+        vendor: "glm".into(),
+        icon: "🔷".into(),
+        color: "#2563EB".into(),
+        items: vec![item("5小时限额"), item("周限额")],
+        placeholder: true,
+        ..Default::default()
+    }
 }
 
 /// 当前毫秒时间戳。

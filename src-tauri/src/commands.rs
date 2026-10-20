@@ -1,23 +1,25 @@
 //! 暴露给前端调用的 Tauri 命令。
 //!
-//! 包含手动刷新、打开数据文件、主题与悬浮条设置等交互入口。
-//! API Key 已改为编译期加密硬编码，不再经由此处配置；
-//! 例外：MiMo 的登录 Cookie 接口不接受 API Key，由此处运行期配置。
+//! 包含手动刷新、打开配置文件、主题与悬浮条设置、Coding Plan 实例管理
+//! （增删 / 改名 / 换 key / 显隐）、MiMo Cookie 等交互入口。
+//! API Key 自多实例改造起由用户运行期配置（config.json 的 plans 数组）；
+//! 编译期内置 key 仅供首次升级播种迁移（见 config::load_plans）。
 
 use tauri::{AppHandle, Emitter, Manager, State};
 
-use crate::config;
+use crate::config::{self, PlanConfig};
 use crate::data::BalanceData;
-use crate::merge::filter_visible_plans;
+use crate::snapshot;
 use crate::state::{self, AppState};
 
 /// 返回当前已合并的展示数据（含 loading 态）。
 /// 前端启动时调一次拿初始数据，之后靠 `services-updated` 事件增量更新。
-/// 快照是全量的，这里按用户可见配置（config.json 的 visiblePlans）过滤后返回。
+/// 快照是全量的，这里按每实例的 visible 配置过滤后返回。
 #[tauri::command]
 pub async fn get_services(state: State<'_, AppState>) -> Result<BalanceData, String> {
+    let plans = config::load_plans();
     let mut data = state.snapshot().await;
-    filter_visible_plans(&mut data, &config::load_visible_plans());
+    snapshot::filter_visible(&mut data, &plans);
     Ok(data)
 }
 
@@ -28,14 +30,14 @@ pub async fn refresh_now(app: AppHandle, _state: State<'_, AppState>) -> Result<
     Ok(())
 }
 
-/// 用系统默认编辑器打开 balance.json。
+/// 用系统默认编辑器打开 config.json（Coding Plan 实例 / 主题等用户配置）。
 ///
 /// 走 `open` crate 的系统文件关联：用 .json 的默认程序打开（VS Code / 新版记事本等），
 /// 而非硬编码 notepad——后者在老版 Windows 上按 GBK 打开无 BOM 的
-/// UTF-8，会导致中文乱码并可能污染 balance.json。
+/// UTF-8，会导致中文乱码并可能污染配置文件。
 #[tauri::command]
-pub fn open_balance_file() -> Result<(), String> {
-    let path = config::balance_path();
+pub fn open_config_file() -> Result<(), String> {
+    let path = config::config_path();
     open::that(&path).map_err(|e| e.to_string())
 }
 
@@ -83,7 +85,33 @@ pub fn set_float_visible(app: AppHandle, visible: bool) -> Result<(), String> {
     Ok(())
 }
 
-// ── MiMo Cookie（运行期配置）──
+// ── Coding Plan 实例管理（设置对话框）──
+
+/// 读 plan 实例列表（含完整 key，对话框回显用；前端只展示尾部指纹）。
+#[tauri::command]
+pub fn get_plans() -> Vec<PlanConfig> {
+    config::load_plans()
+}
+
+/// 保存 plan 实例列表：规范化 → 非空校验（至少保留一个实例）→ 持久化
+/// → 立即重发快照（增删 / 显隐即时生效）→ 触发刷新（补齐新实例的数据）。
+/// 返回规范化后的权威列表（新增实例的 id 由后端生成，前端据此同步）。
+#[tauri::command]
+pub async fn save_plans(
+    app: AppHandle,
+    plans: Vec<PlanConfig>,
+) -> Result<Vec<PlanConfig>, String> {
+    let normalized = config::normalize_plans(plans);
+    if normalized.is_empty() {
+        return Err("至少保留一个 Coding Plan".into());
+    }
+    config::save_plans(&normalized).map_err(|e| e.to_string())?;
+    state::reemit_visible_snapshot(&app).await;
+    AppState::request_refresh(app).await;
+    Ok(normalized)
+}
+
+// ── MiMo Cookie（运行期配置，存 plans 中 vendor=="mimo" 实例）──
 
 /// 读 MiMo Cookie（设置对话框回显用）。空串表示未配置。
 #[tauri::command]
@@ -92,7 +120,7 @@ pub fn get_mimo_cookie() -> String {
 }
 
 /// 保存 MiMo Cookie：宽容清洗 → 持久化到 config.json → 立即触发刷新验证。
-/// 清洗后为空串表示清除配置（未配置时主界面不显示 MiMo 卡片）。
+/// 清洗后为空串表示清除配置（无 Cookie 的 mimo 实例不出卡片）。
 #[tauri::command]
 pub async fn save_mimo_cookie(app: AppHandle, cookie: String) -> Result<(), String> {
     let normalized = normalize_cookie(&cookie);
@@ -151,42 +179,9 @@ fn extract_cookie_from_curl(s: &str) -> Option<String> {
     Some(rest[..end].trim().to_string())
 }
 
-// ── 看板可见 Coding Plan（设置对话框勾选显示哪几家）──
-
-/// 读看板可见的服务 ID 列表（glm / minimax / mimo / deepseek），对话框打开时回显。
-#[tauri::command]
-pub fn get_visible_plans() -> Vec<String> {
-    config::load_visible_plans()
-}
-
-/// 保存看板可见的服务列表：规范化 → 非空校验（至少一个）→ 持久化
-/// → 立即重发快照（显隐即时生效）→ 触发刷新（补齐刚重新启用服务的新数据）。
-#[tauri::command]
-pub async fn save_visible_plans(app: AppHandle, plans: Vec<String>) -> Result<(), String> {
-    let normalized = normalize_plan_ids(&plans);
-    if normalized.is_empty() {
-        return Err("至少需要显示一个 Coding Plan".into());
-    }
-    config::save_visible_plans(&normalized).map_err(|e| e.to_string())?;
-    state::reemit_visible_snapshot(&app).await;
-    AppState::request_refresh(app).await;
-    Ok(())
-}
-
-/// 宽容清洗勾选项：trim + 小写 + 只保留已知四家 + 去重保序。
-/// 未知 ID 静默丢弃——前端只发已知项，此处理防手调接口传入垃圾值。
-fn normalize_plan_ids(raw: &[String]) -> Vec<String> {
-    let mut seen = std::collections::HashSet::new();
-    raw.iter()
-        .map(|s| s.trim().to_lowercase())
-        .filter(|s| config::ALL_PLAN_IDS.contains(&s.as_str()))
-        .filter(|s| seen.insert(s.clone()))
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{normalize_cookie, normalize_plan_ids};
+    use super::normalize_cookie;
 
     #[test]
     fn normalize_plain_value() {
@@ -220,30 +215,5 @@ mod tests {
         assert_eq!(normalize_cookie(""), "");
         assert_eq!(normalize_cookie("   \n  "), "");
         assert_eq!(normalize_cookie("Cookie:"), "");
-    }
-
-    #[test]
-    fn plan_ids_keep_known_in_order() {
-        assert_eq!(
-            normalize_plan_ids(&["glm".into(), "mimo".into(), "deepseek".into()]),
-            vec!["glm", "mimo", "deepseek"]
-        );
-    }
-
-    #[test]
-    fn plan_ids_normalize_case_trim_and_dedupe() {
-        assert_eq!(
-            normalize_plan_ids(&[" GLM ".into(), "GLM".into(), "MiMo".into()]),
-            vec!["glm", "mimo"]
-        );
-    }
-
-    #[test]
-    fn plan_ids_drop_unknown() {
-        assert_eq!(
-            normalize_plan_ids(&["openai".into(), "minimax".into()]),
-            vec!["minimax"]
-        );
-        assert!(normalize_plan_ids(&["".into(), "  ".into()]).is_empty());
     }
 }

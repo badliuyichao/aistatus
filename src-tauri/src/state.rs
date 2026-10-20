@@ -1,12 +1,12 @@
 //! 应用共享状态 + 后台拉取调度。
 //!
-//! 集中管理：当前 API key、当前展示数据快照、并发拉取与防重入。
+//! 集中管理：当前 plan 实例配置、当前展示数据快照、并发拉取与防重入。
 //!
 //! 拉取流程（每次 request_refresh）：
 //!   1. 若已有拉取在跑 → 直接返回
-//!   2. 并发拉三家（`futures::join`）
-//!   3. 读 balance.json → merge → 更新快照
-//!   4. emit `services-updated` 给前端
+//!   2. 现读 config.json 的 plans → 按实例并发拉取（join_all）
+//!   3. build_snapshot 组装快照 → 更新状态
+//!   4. 出口按 plan.visible 过滤后 emit `services-updated` 给前端
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -14,13 +14,8 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::config;
-use crate::data::{BalanceData, FetchOutcome};
-use crate::fetcher;
-use crate::merge::{filter_visible_plans, merge_api_into, plan_id_of};
-use crate::secrets;
-
-/// 编译进二进制的首次启动模板，不依赖安装目录或开发目录中的外部文件。
-const BALANCE_TEMPLATE: &str = include_str!("../resources/balance.json");
+use crate::data::BalanceData;
+use crate::snapshot;
 
 pub struct AppState {
     /// 当前展示数据快照（get_services 返回它）。
@@ -32,12 +27,10 @@ pub struct AppState {
 
 impl AppState {
     pub fn new() -> Self {
-        // 启动时从 balance.json 读骨架，两家标记 loading。
-        let mut data = load_balance_or_default();
-        for svc in &mut data.services {
-            svc.loading = true;
-        }
-        data.timestamp = Some(BalanceData::now_timestamp());
+        // 启动初始快照：已配置凭据的实例给 loading 卡片，等首轮拉取填充。
+        // 首次升级迁移（内置 key 播种 plans）在 load_plans 内完成。
+        let plans = config::load_plans();
+        let data = snapshot::initial_snapshot(&plans);
 
         Self {
             snapshot: tokio::sync::Mutex::new(data),
@@ -87,109 +80,95 @@ impl Drop for BusyGuard {
     }
 }
 
-/// 一次完整拉取：并发四请求 → merge → 更新快照 → emit。
+/// 一次完整拉取：按 plans 并发拉全部实例 → 组装快照 → emit。
 ///
-/// GLM/MiniMax/DeepSeek 的 key 由 secrets 模块运行期解密提供（编译期加密注入；
-/// DeepSeek 未内置 key 时为空串，fetcher 返回 NotConfigured 不出卡片）；
-/// MiMo 的 Cookie 从 config.json 现读（用户运行期可改，60s 一轮的读文件
-/// 开销可忽略，天然拿到刚保存的新值，无需缓存失效机制）。
+/// plans 每轮现读 config.json（用户在设置里增删实例 / 换 key 后立即生效，
+/// 无缓存失效机制）；每个实例一次 fetch（空凭据的实例由 fetcher 返回
+/// Skipped 跳过，不出卡片）。
 async fn do_fetch_and_emit(state: &AppState, app: &AppHandle) {
-    // 并发拉四家。key/cookie 在此处临时取用，用完即弃。
-    // join! 宏支持任意元数（join 函数只重载到二元）；凭据需先绑定，
-    // 临时 String 内联进宏会被判跨 await 悬垂借用（宏展开为多条子语句，
-    // 不享受函数调用的临时值生命周期延长）。
-    let glm_key = secrets::glm_key();
-    let minimax_key = secrets::minimax_key();
-    let deepseek_key = secrets::deepseek_key();
-    let mimo_cookie = config::load_mimo_cookie();
-    let (glm, mm, mimo, ds) = futures::join!(
-        fetcher::glm::fetch(&glm_key),
-        fetcher::minimax::fetch(&minimax_key),
-        fetcher::mimo::fetch(&mimo_cookie),
-        fetcher::deepseek::fetch(&deepseek_key),
-    );
+    let plans = config::load_plans();
 
-    let outcome = FetchOutcome {
-        glm,
-        minimax: mm,
-        mimo,
-        deepseek: ds,
-    };
+    // 并发拉取全部实例。join_all 的 future 借用 plans，作用域内 await 安全。
+    let results = futures::future::join_all(plans.iter().map(snapshot::fetch_plan)).await;
 
-    // 每次刷新都重新读用户可编辑的 balance.json。
-    let mut data = load_balance_or_default();
-    merge_api_into(&mut data, &outcome);
-    data.timestamp = Some(BalanceData::now_timestamp());
+    let mut data = snapshot::build_snapshot(&plans, results);
 
-    // 快照保留全量合并结果；可见性是展示层配置（config.json 的 visiblePlans），
+    // 快照保留全量合并结果；可见性是展示层配置（每实例的 visible），
     // 只在出口（此处 emit / get_services）过滤，取消隐藏可立即用快照缓存回显。
     *state.snapshot.lock().await = data.clone();
 
-    let mut view = data;
-    filter_visible_plans(&mut view, &config::load_visible_plans());
+    snapshot::filter_visible(&mut data, &plans);
 
     // 悬浮条高度按可见行数自适应（在 emit 前取数据，emit 会 move）
-    let rows = float_row_count(&view);
+    let rows = data.services.len();
 
     // 广播给前端
-    let _ = app.emit("services-updated", view);
+    let _ = app.emit("services-updated", data);
 
     fit_float_window(app, rows);
 }
 
-/// 悬浮条可见行数：每家可见服务占一行，已被可见性配置滤掉的卡片不占行。
-fn float_row_count(data: &BalanceData) -> usize {
-    let mut rows = 0;
-    let mut seen = std::collections::HashSet::new();
-    for id in data.services.iter().filter_map(|s| plan_id_of(&s.name)) {
-        if seen.insert(id) {
-            rows += 1;
-        }
-    }
-    rows
-}
-
-/// 按当前可见性配置把快照重新推给前端：显隐配置保存后立即生效，
+/// 按当前可见性配置把快照重新推给前端：显隐 / 实例增删配置保存后立即生效，
 /// 不等下一轮拉取（60s / 手动刷新）。快照是全量的，过滤在此进行——
 /// 取消隐藏时用缓存数据即时回显，随后的 request_refresh 再补新数据。
 pub(crate) async fn reemit_visible_snapshot(app: &AppHandle) {
     let state = app.state::<AppState>();
+    let plans = config::load_plans();
     let mut view = state.snapshot().await;
-    filter_visible_plans(&mut view, &config::load_visible_plans());
-    let rows = float_row_count(&view);
+    snapshot::filter_visible(&mut view, &plans);
+    let rows = view.services.len();
     let _ = app.emit("services-updated", view);
     fit_float_window(app, rows);
 }
 
 /// 悬浮条尺寸：与 tauri.conf.json 的 float 窗口保持一致。
+/// 宽 220：品牌列 76 + 进度条 ~118（barColors 列加宽后仍保有足够条长）。
 /// 高度 = 基础 + 每可见服务一行（20 逻辑像素）：
-/// 1 行 40 / 2 行 60 / 3 行 80 / 4 行 100。
-const FLOAT_WIDTH: f64 = 180.0;
+/// 1 行 40 / 2 行 60 / 3 行 80 / 4 行 100（多实例时按实际行数增长）。
+const FLOAT_WIDTH: f64 = 220.0;
 const FLOAT_ROW_H: f64 = 20.0;
 const FLOAT_BASE_H: f64 = 20.0;
 
-/// 悬浮条高度自适应：可见服务行数变化时增减高度。
+/// 悬浮条尺寸自适应：可见服务行数变化时增减高度；宽度与 FLOAT_WIDTH 不符时
+/// （如升级改宽）一并修正。
 ///
-/// 仅高度实际变化时才动窗口。用户没拖过（无保存位置）时重新锚回平台默认角，
-/// 避免增高后底部压到任务栏（Win/Linux 底部锚定）；mac 顶部锚定，
-/// set_size 保持左上角不动即可，无需重锚。
+/// 用户没拖过（无保存位置）时重新锚回平台默认角，避免增高后底部压到任务栏
+/// （Win/Linux 底部锚定）；mac 顶部锚定，set_size 保持左上角不动即可，无需重锚。
+/// 保存过位置时 set_size 以左上角为基准向右生长，贴屏幕右缘摆放的窗口加宽后
+/// 会被推出屏幕——把 x 左移宽度增量补偿，保持原右缘位置。
 fn fit_float_window(app: &AppHandle, rows: usize) {
     let Some(win) = app.get_webview_window("float") else {
         return;
     };
-    let rows = rows.max(1); // 防御：配置保证至少显示一家，异常数据时不缩成 0 高
+    let rows = rows.max(1); // 防御：配置保证至少保留一个实例，异常数据时不缩成 0 高
     let target = FLOAT_BASE_H + FLOAT_ROW_H * rows as f64;
     let scale = win.scale_factor().unwrap_or(1.0);
-    let cur_h = win
-        .outer_size()
-        .map(|s| s.height as f64 / scale)
-        .unwrap_or(0.0);
-    if (cur_h - target).abs() < 0.5 {
+    let (cur_w, cur_h) = match win.outer_size() {
+        Ok(s) => (s.width as f64 / scale, s.height as f64 / scale),
+        Err(_) => (FLOAT_WIDTH, target),
+    };
+    let width_changed = (cur_w - FLOAT_WIDTH).abs() > 0.5;
+    if !width_changed && (cur_h - target).abs() < 0.5 {
         return;
     }
     let _ = win.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
         FLOAT_WIDTH, target,
     )));
+
+    // 保存过位置（不会走下方重锚）且窗口加宽：贴右缘时左移补偿，防止出屏
+    if width_changed && config::load_float_position().is_some() {
+        if let (Ok(pos), Ok(Some(mon))) = (win.outer_position(), win.primary_monitor()) {
+            let grow = ((FLOAT_WIDTH - cur_w) * scale) as i32;
+            let mon_right = mon.position().x + mon.size().width as i32;
+            let new_right = pos.x + (FLOAT_WIDTH * scale) as i32;
+            if new_right > mon_right {
+                let _ = win.set_position(tauri::Position::Physical(
+                    tauri::PhysicalPosition::new(pos.x - grow, pos.y),
+                ));
+            }
+        }
+    }
+
     if config::load_float_position().is_none() {
         #[cfg(target_os = "macos")]
         {
@@ -200,26 +179,4 @@ fn fit_float_window(app: &AppHandle, rows: usize) {
             crate::anchor_to_bottom_right(&win);
         }
     }
-}
-
-/// 读 balance.json；文件缺失时从内嵌模板创建，解析失败时返回默认值。
-pub fn load_balance_or_default() -> BalanceData {
-    let path = config::balance_path();
-    match std::fs::read_to_string(&path) {
-        Ok(body) => serde_json::from_str(&body).unwrap_or_default(),
-        Err(_) => {
-            // 首次运行：从编译进程序的模板创建文件，再读。
-            let _ = seed_balance_template();
-            config::read_json_or_default::<BalanceData>(&path)
-        }
-    }
-}
-
-/// 首次运行：将编译进程序的 balance.json 模板写入用户数据目录。
-fn seed_balance_template() -> std::io::Result<()> {
-    let dest = config::balance_path();
-    if let Some(parent) = dest.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(dest, BALANCE_TEMPLATE)
 }

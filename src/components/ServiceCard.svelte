@@ -12,16 +12,23 @@
 
   let { service }: { service: ServiceInfo } = $props();
 
-  function logo(name: string): string | null {
-    const n = (name || "").trim();
-    if (n.startsWith("GLM")) return glmLogo;
-    if (n.startsWith("MiniMax")) return minimaxLogo;
-    if (n.startsWith("MiMo")) return mimoLogo;
-    if (n.startsWith("DeepSeek")) return deepseekLogo;
-    return null;
+  // 品牌图标按服务商稳定 ID 匹配（同品牌多实例共用图标）。
+  function logo(vendor: string): string | null {
+    switch (vendor) {
+      case "glm":
+        return glmLogo;
+      case "minimax":
+        return minimaxLogo;
+      case "mimo":
+        return mimoLogo;
+      case "deepseek":
+        return deepseekLogo;
+      default:
+        return null;
+    }
   }
 
-  let brandLogo = $derived(logo(service.name));
+  let brandLogo = $derived(logo(service.vendor));
   // 状态点颜色：loading 时暗灰，否则主题色。
   let statusColor = $derived(service.loading ? "#C8CDD6" : service.color);
 </script>
@@ -35,7 +42,9 @@
         <span class="emoji">{service.icon || "●"}</span>
       {/if}
     </div>
-    <span class="name">{service.name}</span>
+    <span class="name">
+      {service.name}{#if service.label}<span class="inst-label"> · {service.label}</span>{/if}
+    </span>
     <span class="status-dot" style="background:{statusColor}"></span>
   </div>
 
@@ -87,6 +96,15 @@
     color: var(--color);
     font-size: 14px;
     font-weight: 700;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* 实例标签（用户命名，区分同品牌多实例）：弱化色。 */
+  .inst-label {
+    color: var(--text-secondary);
+    font-weight: 500;
+    font-size: 12px;
   }
   .status-dot {
     width: 8px;

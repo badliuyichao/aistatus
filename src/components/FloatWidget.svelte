@@ -1,37 +1,27 @@
 <script lang="ts">
-  // 悬浮条：长方形小窗，进度条显示 GLM / MiniMax 的「5小时限额」+「周限额」
-  // （同一行上下两条）、MiMo 的「Token Plan 套餐」已用%；
-  // DeepSeek 为余额型，显示账户余额金额。
+  // 悬浮条：长方形小窗，数据驱动渲染所有可见服务实例（同品牌多实例各占一行）：
+  //   - quota 型：items 含「5小时限额」+「周限额」两条 → 同一行上下双 4px 进度条
+  //     （GLM / MiniMax）；其余（MiMo 的「Token Plan 套餐」等）→ 单条 + 右侧百分比。
+  //   - balance 型（DeepSeek）：不放进度条（余额无分母），右对齐显示金额；
+  //     金额旁状态标签（安全 ≥50 绿 / 预警 10–<50 黄 / 危险 <10 红），
+  //     错误占位（key 无效 / 服务繁忙）不显示状态；明细进 tooltip。
   //
   // 与主窗口共用同一份 index.html，经 main.ts 按 webview label 分流挂载。
   // 复用 services store（自动收 services-updated 广播）和 theme store（跟随主题）。
   //
-  // 数据来源：GLM / MiniMax 取 items 里 label === "5小时限额" / "周限额" 两条配额项，
-  // MiMo 取 "Token Plan 套餐"，DeepSeek 取 type === "balance" 的卡片。
+  // 行标签 = 实例 label（用户命名）|| 品牌短名；行归属按 services 数组顺序
+  // （= 设置里 plan 列表顺序）。被隐藏的实例不会出现在数据里（后端出口过滤）。
   //   - 百分比统一按 used/total 计算：GLM/MiniMax 的百分比条 total=100；
   //     GLM 若返回 token 绝对值条（unit=="tokens"）也能得到正确比例。
   //   - MiMo：item.used / total 是**原始额度**（如 893M / 4.1B，非百分比），
   //     比例需自行计算 used/total；明细（绝对值 + 已用%）放行 tooltip。
   //   - item.displayValue === "∞" 表示该窗口未计费/不限额，进度条满格灰色 + ∞ 标记。
   //   - 进度条填充用同色相「浅→深」渐变（barGradient）：渐变按整条 track 铺开，
-  //     宽度越大露出的颜色越深（5% 只有浅色，100% 露出完整深色端）。
-  //     色相按服务固定，且每组内上下两条再分色：
-  //       GLM（冷色组）    5小时=电光蓝 #3B82F6 / 周=翡翠绿 #34D399
-  //       MiniMax（暖色组）5小时=亮洋红 #D946EF / 周=珊瑚橙 #FB923C
-  //     先按冷暖区分两家，再看组内色相区分「5小时 / 周」；
-  //     不随用量在绿→黄之间跳变，避免两条同时变黄难以区分；
-  //     只有 ≥80% 接近耗尽时才统一转红告警。
-  //   - DeepSeek：纯 prepaid 按量计费，没有「已用百分比」的语义（无分母可算），
-  //     进度条无意义 → 该行不放进度条，右对齐显示余额金额；
-  //     金额旁显示状态标签（安全 ≥50 绿 / 预警 10–<50 黄 / 危险 <10 红），
-  //     金额与标签同色；错误占位（key 无效 / 服务繁忙）不显示状态。
-  //     明细（充值/赠送拆分、错误提示）放行 tooltip。
-  //   - 服务 loading 或找不到对应 item 时显示 N/A；被设置对话框隐藏的服务
-  //     不会出现在数据里（后端按 visiblePlans 过滤），整行不渲染。
+  //     宽度越大露出的颜色越深。色相按服务商固定（barColors），同品牌多实例
+  //     共用色相、靠行标签区分；只有 ≥80% 接近耗尽时统一转红告警。
+  //   - 服务 loading 或无对应 item 时显示 N/A。
   //
-  // GLM / MiniMax 的两条进度条叠在同一行内（各 4px 高，上=5小时、下=本周），
-  // 不显示右侧百分比文字，具体数值放行 tooltip；可见行数不变，窗口高度仍由后端
-  // fit_float_window 按行数自适应（40/60/80/100 逻辑像素）。
+  // 窗口高度由后端 fit_float_window 按可见行数自适应（基础 20 + 每行 20 逻辑像素）。
 
   import { onMount } from "svelte";
   import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -46,17 +36,31 @@
   let moveTimer: number | undefined;
   let unlistenMoved: (() => void) | undefined;
 
-  /** 匹配规则与后端 merge.rs 对齐：GLM 名字以 "GLM 智谱AI" 开头，MiniMax 名字为 "MiniMax"。 */
-  function findService(prefix: string): ServiceInfo | undefined {
-    return services.data.services.find(
-      (s) => s.name.startsWith(prefix) && s.type === "quota"
-    );
+  /** 可见服务按类型分组（顺序 = plan 列表顺序，同品牌多实例各占一行）。 */
+  const quotaSvcs = $derived(services.data.services.filter((s) => s.type === "quota"));
+  const balanceSvcs = $derived(services.data.services.filter((s) => s.type === "balance"));
+
+  /** 行标签：品牌短名 + 实例备注（如「GLM 主账号」），无备注就是品牌短名——
+   *  备注随便起名（主账号 / 部门 / 备用），品牌必须可见才能分清是哪一家的。 */
+  function rowLabel(svc: ServiceInfo): string {
+    const brand = brandShort(svc.vendor);
+    const label = svc.label?.trim();
+    return label ? `${brand} ${label}` : brand;
   }
 
-  /** 取某家指定 label 的配额项；服务 loading 或无此 item 返回 undefined。 */
-  function quotaItem(svc: ServiceInfo | undefined, label: string): QuotaItem | undefined {
-    if (!svc || svc.loading) return undefined;
-    return svc.items.find((it) => it.label === label);
+  function brandShort(vendor: string): string {
+    switch (vendor) {
+      case "glm":
+        return "GLM";
+      case "minimax":
+        return "MiniMax";
+      case "mimo":
+        return "MiMo";
+      case "deepseek":
+        return "DeepSeek";
+      default:
+        return vendor;
+    }
   }
 
   /** 已用百分比（0–100）。∞ / 无数据返回 null；兼容百分比条与 token 绝对值条。 */
@@ -73,42 +77,6 @@
     if (pct !== null) return `${Math.round(pct)}%`;
     return item?.displayValue ?? "—";
   }
-
-  const glm = $derived(findService("GLM"));
-  const mm = $derived(findService("MiniMax"));
-  const mimo = $derived(findService("MiMo"));
-  const glmItem = $derived(quotaItem(glm, "5小时限额"));
-  const glmWeekItem = $derived(quotaItem(glm, "周限额"));
-  const mmItem = $derived(quotaItem(mm, "5小时限额"));
-  const mmWeekItem = $derived(quotaItem(mm, "周限额"));
-  const glmPct = $derived(usedPct(glmItem));
-  const glmWeekPct = $derived(usedPct(glmWeekItem));
-  const mmPct = $derived(usedPct(mmItem));
-  const mmWeekPct = $derived(usedPct(mmWeekItem));
-  // MiMo 的 Token Plan 套餐项；loading 时 undefined（显示 —）。
-  const mimoItem = $derived(
-    mimo && !mimo.loading
-      ? mimo.items.find((it) => it.label === "Token Plan 套餐")
-      : undefined
-  );
-  // MiMo 的 used/total 是原始额度（非百分比），比例自行计算；total<=0 视为无数据。
-  const mimoPct = $derived(
-    mimoItem && mimoItem.total > 0
-      ? Math.max(0, Math.min(100, (mimoItem.used / mimoItem.total) * 100))
-      : null
-  );
-
-  // DeepSeek 余额卡片（balance 型；后端 merge 保证 items 恒空、金额在 balance 字段）。
-  const ds = $derived(
-    services.data.services.find(
-      (s) => s.name.startsWith("DeepSeek") && s.type === "balance"
-    )
-  );
-
-  // DeepSeek 余额状态：loading / 错误占位时不显示，避免把 0 元占位误判为危险。
-  const dsStatus = $derived(
-    ds && !ds.loading && !ds.placeholder ? balanceStatus(ds.balance) : null
-  );
 
   /** 金额格式化：千分位 + 固定两位小数（与主窗口 BalanceView 一致）。 */
   function fmtAmount(v: number): string {
@@ -157,111 +125,92 @@
   tabindex="-1"
   title="拖拽移动 · 托盘菜单「悬浮条」切换显隐"
 >
-  {#if glm}
-    <div
-      class="row dual-row"
-      title="GLM · 5小时限额 {pctLabel(glmItem, glmPct)} · 本周 {pctLabel(glmWeekItem, glmWeekPct)}"
-    >
-      <span class="brand" style="color:{glm.color || '#888'}">GLM</span>
-      <div class="tracks">
-        <div class="track thin">
-          {#if glmPct === null && glmItem?.displayValue === "∞"}
-            <div class="fill infinite" style="width:100%"></div>
-          {:else if glmPct !== null}
-            <div
-              class="fill"
-              style="width:{glmPct}%; background-image:{barGradient(glmPct, glm)}; background-size:{gradientSize(glmPct)}"
-            ></div>
-          {/if}
-        </div>
-        <div class="track thin">
-          {#if glmWeekPct === null && glmWeekItem?.displayValue === "∞"}
-            <div class="fill infinite" style="width:100%"></div>
-          {:else if glmWeekPct !== null}
-            <div
-              class="fill"
-              style="width:{glmWeekPct}%; background-image:{barGradient(glmWeekPct, glm, 'week')}; background-size:{gradientSize(glmWeekPct)}"
-            ></div>
-          {/if}
-        </div>
-      </div>
-    </div>
-  {/if}
-
-  {#if mm}
-    <div
-      class="row dual-row"
-      title="MiniMax · 5小时限额 {pctLabel(mmItem, mmPct)} · 本周 {pctLabel(mmWeekItem, mmWeekPct)}"
-    >
-      <span class="brand" style="color:{mm.color || '#888'}">MiniMax</span>
-      <div class="tracks">
-        <div class="track thin">
-          {#if mmPct === null && mmItem?.displayValue === "∞"}
-            <div class="fill infinite" style="width:100%"></div>
-          {:else if mmPct !== null}
-            <div
-              class="fill"
-              style="width:{mmPct}%; background-image:{barGradient(mmPct, mm)}; background-size:{gradientSize(mmPct)}"
-            ></div>
-          {/if}
-        </div>
-        <div class="track thin">
-          {#if mmWeekPct === null && mmWeekItem?.displayValue === "∞"}
-            <div class="fill infinite" style="width:100%"></div>
-          {:else if mmWeekPct !== null}
-            <div
-              class="fill"
-              style="width:{mmWeekPct}%; background-image:{barGradient(mmWeekPct, mm, 'week')}; background-size:{gradientSize(mmWeekPct)}"
-            ></div>
-          {/if}
+  {#each quotaSvcs as svc (svc.id)}
+    {@const items = svc.loading ? [] : svc.items}
+    {@const five = items.find((it) => it.label === "5小时限额")}
+    {@const week = items.find((it) => it.label === "周限额")}
+    {#if five && week}
+      <!-- 双进度条行（GLM / MiniMax）：上=5小时、下=本周，数值放行 tooltip -->
+      {@const fivePct = usedPct(five)}
+      {@const weekPct = usedPct(week)}
+      <div
+        class="row dual-row"
+        title="{rowLabel(svc)} · 5小时限额 {pctLabel(five, fivePct)} · 本周 {pctLabel(week, weekPct)}"
+      >
+        <span class="brand" style="color:{svc.color || '#888'}">{rowLabel(svc)}</span>
+        <div class="tracks">
+          <div class="track thin">
+            {#if fivePct === null && five.displayValue === "∞"}
+              <div class="fill infinite" style="width:100%"></div>
+            {:else if fivePct !== null}
+              <div
+                class="fill"
+                style="width:{fivePct}%; background-image:{barGradient(fivePct, svc)}; background-size:{gradientSize(fivePct)}"
+              ></div>
+            {/if}
+          </div>
+          <div class="track thin">
+            {#if weekPct === null && week.displayValue === "∞"}
+              <div class="fill infinite" style="width:100%"></div>
+            {:else if weekPct !== null}
+              <div
+                class="fill"
+                style="width:{weekPct}%; background-image:{barGradient(weekPct, svc, 'week')}; background-size:{gradientSize(weekPct)}"
+              ></div>
+            {/if}
+          </div>
         </div>
       </div>
-    </div>
-  {/if}
-
-  {#if mimo}
-    <div
-      class="row"
-      title="MiMo Token Plan：{mimoItem?.displayValue ?? '—'} · {mimoItem?.detail ?? '刷新中'}"
-    >
-      <span class="brand" style="color:{mimo.color || '#FF6900'}">MiMo</span>
-      <div class="track">
-        {#if mimoPct !== null}
-          <div
-            class="fill"
-            style="width:{mimoPct}%; background-image:{barGradient(mimoPct, mimo)}; background-size:{gradientSize(mimoPct)}"
-          ></div>
-        {/if}
+    {:else}
+      <!-- 单条行（MiMo Token Plan 等）：进度条 + 右侧百分比 -->
+      {@const item = items[0]}
+      {@const pct = usedPct(item)}
+      <div
+        class="row"
+        title="{rowLabel(svc)}：{item?.displayValue ?? '—'} · {item?.detail ?? '刷新中'}"
+      >
+        <span class="brand" style="color:{svc.color || '#888'}">{rowLabel(svc)}</span>
+        <div class="track">
+          {#if pct !== null}
+            <div
+              class="fill"
+              style="width:{pct}%; background-image:{barGradient(pct, svc)}; background-size:{gradientSize(pct)}"
+            ></div>
+          {/if}
+        </div>
+        <span class="pct">{pct === null ? "—" : `${Math.round(pct)}%`}</span>
       </div>
-      <span class="pct">{mimoPct === null ? "—" : `${Math.round(mimoPct)}%`}</span>
-    </div>
-  {/if}
+    {/if}
+  {/each}
 
-  {#if ds}
+  {#each balanceSvcs as svc (svc.id)}
+    <!-- 余额行（DeepSeek）：无进度条，右对齐金额 + 状态标签 -->
+    {@const status = svc.loading || svc.placeholder ? null : balanceStatus(svc.balance)}
     <div
       class="row balance-row"
-      title="DeepSeek 余额：{ds.loading ? '刷新中' : `${ds.currency}${fmtAmount(ds.balance)}`}{dsStatus ? ` · ${dsStatus.label}` : ''}{ds.detail ? ` · ${ds.detail}` : ''}"
+      title="{rowLabel(svc)} 余额：{svc.loading ? '刷新中' : `${svc.currency}${fmtAmount(svc.balance)}`}{status ? ` · ${status.label}` : ''}{svc.detail ? ` · ${svc.detail}` : ''}"
     >
-      <span class="brand" style="color:{ds.color || '#4D6BFE'}">DeepSeek</span>
+      <span class="brand" style="color:{svc.color || '#4D6BFE'}">{rowLabel(svc)}</span>
       <div class="balance-right">
         <span
           class="amount"
-          style="color:{ds.loading ? 'var(--text-muted)' : dsStatus?.color ?? 'var(--text-muted)'}"
+          style="color:{svc.loading ? 'var(--text-muted)' : status?.color ?? 'var(--text-muted)'}"
         >
-          {ds.loading ? "—" : `${ds.currency}${fmtAmount(ds.balance)}`}
+          {svc.loading ? "—" : `${svc.currency}${fmtAmount(svc.balance)}`}
         </span>
-        {#if dsStatus}
-          <span class="status-badge" style="color:{dsStatus.color}; border-color:{dsStatus.color}">
-            {dsStatus.label}
+        {#if status}
+          <span class="status-badge" style="color:{status.color}; border-color:{status.color}">
+            {status.label}
           </span>
         {/if}
       </div>
     </div>
-  {/if}
+  {/each}
 </div>
 
 <style>
-  /* 180 宽、高 60/80（后端按 MiMo 卡片有无自适应）；body 已透明（见 app.css），卡片自身做半透明质感。 */
+  /* 220 宽、高按可见行数自适应（后端 fit_float_window）；body 已透明（见 app.css），
+     卡片自身做半透明质感。 */
   .floatbar {
     width: 100vw;
     height: 100vh;
@@ -286,16 +235,17 @@
 
   .row {
     display: grid;
-    grid-template-columns: 46px 1fr 30px;
+    /* 品牌列统一固定宽度：各行进度条起点对齐；超长备注截断省略 */
+    grid-template-columns: 76px 1fr 30px;
     align-items: center;
     gap: 6px;
   }
 
-  /* GLM / MiniMax 行：两条 4px 进度条占满右侧（上=5小时，下=本周），不显示百分比文字，
+  /* 双进度条行：两条 4px 进度条占满右侧（上=5小时，下=本周），不显示百分比文字，
      具体数值放在行 tooltip；整体 16px 高，低于每行 20px 的窗口预算，
      因此不增加悬浮条高度。 */
   .dual-row {
-    grid-template-columns: 46px 1fr;
+    grid-template-columns: 76px 1fr;
   }
   .tracks {
     display: grid;
@@ -308,10 +258,9 @@
     border-radius: 2px;
   }
 
-  /* DeepSeek 余额行：无进度条（余额没有分母），brand 列加宽放下 8 字母，
-     金额跨满剩余空间右对齐。 */
+  /* 余额行：无进度条（余额没有分母），金额跨满剩余空间右对齐。 */
   .balance-row {
-    grid-template-columns: 52px 1fr;
+    grid-template-columns: 76px 1fr;
   }
   .balance-right {
     display: flex;
@@ -340,6 +289,12 @@
     font-size: 10px;
     font-weight: 700;
     color: var(--text-primary, #1e2433);
+    /* 列宽固定 76px。min-width:0 必须显式声明：grid 项默认 min-width:auto，
+       nowrap 长文字会把项撑出列外压到进度条，截断也随之失效 */
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .track {

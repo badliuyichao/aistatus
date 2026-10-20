@@ -1,11 +1,8 @@
-//! 数据模型 —— 定义配置文件、运行时快照与前端事件的共享结构。
+//! 数据模型 —— 定义配置结构与前端事件的共享结构。
 //!
-//! 这些结构同时承担两个方向的序列化：
-//!   1. 反序列化 `balance.json`（用户编辑的模板文件，字段最简）
-//!   2. 序列化后通过 Tauri event 推给前端（含 `loading` 等运行期字段）
-//!
+//! 这些结构序列化后通过 Tauri event 推给前端 / `get_services` 返回，
 //! serde 用 camelCase，与前端 TypeScript 命名一致；
-//! 所有字段 `skip_serializing_if` / 默认值保证缺字段时也能解析（兼容旧 balance.json）。
+//! 所有字段带默认值，缺字段也能解析。
 
 use serde::{Deserialize, Serialize};
 
@@ -57,12 +54,26 @@ impl QuotaItem {
     }
 }
 
-/// 一个服务商条目（GLM / MiniMax）。
+/// 一个服务商实例卡片（同品牌可有多张，靠 id 区分）。
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ServiceInfo {
+    /// 实例稳定 ID（config.json plans 的 id），前端 each key / 显隐匹配用。
+    #[serde(default)]
+    pub id: String,
+
+    /// 服务商稳定 ID：glm / minimax / mimo / deepseek。
+    /// 前端图标 / 配色 / 悬浮条分组按它匹配，不依赖显示名。
+    #[serde(default)]
+    pub vendor: String,
+
+    /// 展示名（品牌名；GLM 带套餐后缀「GLM 智谱AI · {LEVEL}」）。
     #[serde(default)]
     pub name: String,
+
+    /// 用户命名的实例标签（可空），区分同品牌实例；前端拼在名称后展示。
+    #[serde(default)]
+    pub label: String,
 
     /// "quota" | "balance"
     #[serde(default = "default_service_type")]
@@ -114,7 +125,7 @@ fn default_unit() -> String {
     "元".to_string()
 }
 
-/// 完整的余额数据（balance.json 顶层结构）。
+/// 完整的展示数据（快照 / services-updated 事件负载）。
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BalanceData {
@@ -144,109 +155,15 @@ impl BalanceData {
     }
 }
 
-// ── fetcher 返回的原始 API 数据（merge 前的中间结构）──
-// 两家响应结构不同；各 fetcher 解析后统一转换为这些结构。
-
-/// GLM fetcher 返回的展示数据（带 level 套餐档位）。
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GlmResult {
-    pub name: String,
-    pub r#type: String,
-    #[serde(default)]
-    pub icon: String,
-    pub color: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub level: Option<String>,
-    pub items: Vec<QuotaItem>,
-}
-
-/// MiniMax fetcher 返回的展示数据。
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MinimaxResult {
-    pub name: String,
-    pub r#type: String,
-    #[serde(default)]
-    pub icon: String,
-    pub color: String,
-    pub items: Vec<QuotaItem>,
-}
-
-/// MiMo fetcher 返回的展示数据。
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MimoResult {
-    pub name: String,
-    pub r#type: String,
-    #[serde(default)]
-    pub icon: String,
-    pub color: String,
-    pub items: Vec<QuotaItem>,
-}
-
-/// MiMo 拉取的三态结果。
-///
-/// 与另两家不同：MiMo 查询接口只认浏览器登录 Cookie，由用户运行期配置，
-/// 是可选服务，因此「未配置」需与「失败」区分——
-///   - NotConfigured：未配置 Cookie → merge 删除卡片，不打扰不用的用户
-///   - Failed：网络 / HTTP 失败 → 与另两家的 None 同语义（卡片标 loading）
-///   - Ok：成功数据，或业务错误占位条（如「Cookie 已失效」提示）
+/// 单个 plan 实例的拉取结果。各 fetcher 直接产出（凭据检查 + HTTP + 解析），
+/// snapshot 模块把 Ok 的 ServiceInfo 补上 id / vendor / label 后装入快照：
+///   - Skipped：未配置凭据 → 不出卡片（对齐旧 MiMo/DeepSeek 的 NotConfigured）
+///   - Failed：网络 / HTTP / 解析失败 → 卡片标 loading（显示 N/A）
+///   - Ok：成功数据，或明确错误占位（如 401「API Key 无效」、Cookie 失效提示）
 #[derive(Clone, Debug, Default)]
-pub enum MimoFetch {
+pub enum PlanFetch {
     #[default]
-    NotConfigured,
+    Skipped,
     Failed,
-    Ok(MimoResult),
-}
-
-/// DeepSeek fetcher 返回的展示数据（余额型，非配额型）。
-///
-/// DeepSeek 是纯 prepaid 按量计费，没有 GLM/MiniMax 那样的时间窗口配额，
-/// 也没有 MiMo 的套餐额度——只有账户余额。因此展示走 ServiceInfo 的
-/// balance 分支（大号金额 + detail 明细），`items` 恒为空。
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DeepseekResult {
-    pub name: String,
-    pub r#type: String,
-    #[serde(default)]
-    pub icon: String,
-    pub color: String,
-    /// 总余额（total_balance）。
-    pub balance: f64,
-    /// 货币符号（CNY→¥ / USD→$）。
-    pub currency: String,
-    #[serde(default = "default_unit")]
-    pub unit: String,
-    /// 明细文案（充值 / 赠送拆分，或错误占位提示）。
-    pub detail: String,
-    /// 错误占位（余额不足 / key 无效等）：金额不可用于余额状态判断。
-    #[serde(default)]
-    pub placeholder: bool,
-}
-
-/// DeepSeek 拉取的三态结果。
-///
-/// key 与 GLM/MiniMax 同走编译期加密注入，但属于「可选服务」：二进制里
-/// 没内置 key（如未把 deepseek 写进 keys.local.json）时不出卡片，
-/// 与 MiMo 未配置 Cookie 的语义一致——
-///   - NotConfigured：未内置 key → merge 删除卡片
-///   - Failed：网络 / HTTP 失败 → 与另两家的 None 同语义（卡片标 loading）
-///   - Ok：成功数据，或明确错误占位（如 401「API Key 无效」提示）
-#[derive(Clone, Debug, Default)]
-pub enum DeepseekFetch {
-    #[default]
-    NotConfigured,
-    Failed,
-    Ok(DeepseekResult),
-}
-
-/// 拉取结果（glm/minimax 的 None 表示无 key / 失败 / 无数据）。
-#[derive(Clone, Debug, Default)]
-pub struct FetchOutcome {
-    pub glm: Option<GlmResult>,
-    pub minimax: Option<MinimaxResult>,
-    pub mimo: MimoFetch,
-    pub deepseek: DeepseekFetch,
+    Ok(ServiceInfo),
 }

@@ -11,8 +11,8 @@ pub mod commands;
 pub mod config;
 pub mod data;
 mod fetcher;
-mod merge;
 pub mod secrets;
+mod snapshot;
 mod state;
 
 use std::time::Duration;
@@ -53,15 +53,15 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_services,
             commands::refresh_now,
-            commands::open_balance_file,
+            commands::open_config_file,
             commands::get_theme,
             commands::save_theme,
             commands::save_float_position,
             commands::set_float_visible,
             commands::get_mimo_cookie,
             commands::save_mimo_cookie,
-            commands::get_visible_plans,
-            commands::save_visible_plans,
+            commands::get_plans,
+            commands::save_plans,
             fit_to_content,
         ])
         .setup(|app| {

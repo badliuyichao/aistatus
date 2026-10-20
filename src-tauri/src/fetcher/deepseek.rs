@@ -1,10 +1,10 @@
 //! DeepSeek 开放平台余额查询。
 //!
 //! URL:  https://api.deepseek.com/user/balance   （官方公开接口）
-//! Auth: Bearer <api_key>（与 GLM/MiniMax 同走编译期加密注入，见 secrets 模块）
+//! Auth: Bearer <api_key>（用户在设置对话框运行期配置，见 config::PlanConfig）
 //!
-//! 返回三态 DeepseekFetch（见 data.rs）：
-//!   - NotConfigured：二进制未内置 key
+//! 返回三态 PlanFetch（见 data.rs）：
+//!   - Skipped：未配置 key
 //!   - Failed：网络 / 其他 HTTP 失败（卡片 N/A）
 //!   - Ok：成功数据，或明确错误占位（401 key 无效 / 402、503 余额不足或繁忙，
 //!     给可见提示而非 N/A——对齐 MiMo「Cookie 已失效」占位的处理思路）
@@ -17,7 +17,7 @@
 
 use reqwest::header::{ACCEPT, AUTHORIZATION};
 
-use crate::data::{DeepseekFetch, DeepseekResult};
+use crate::data::{PlanFetch, ServiceInfo};
 
 const DEEPSEEK_BALANCE_URL: &str = "https://api.deepseek.com/user/balance";
 
@@ -43,9 +43,10 @@ struct BalanceInfo {
 }
 
 /// 拉取 DeepSeek 余额。
-pub async fn fetch(api_key: &str) -> DeepseekFetch {
+pub async fn fetch(api_key: &str) -> PlanFetch {
+    let api_key = api_key.trim();
     if api_key.is_empty() {
-        return DeepseekFetch::NotConfigured;
+        return PlanFetch::Skipped;
     }
 
     let resp = match crate::fetcher::http_client()
@@ -58,7 +59,7 @@ pub async fn fetch(api_key: &str) -> DeepseekFetch {
         Ok(r) => r,
         Err(e) => {
             eprintln!("[DeepseekFetcher] network error: {e}");
-            return DeepseekFetch::Failed;
+            return PlanFetch::Failed;
         }
     };
 
@@ -69,18 +70,18 @@ pub async fn fetch(api_key: &str) -> DeepseekFetch {
             // 401：认证失败（key 无效 / 被删）
             401 => {
                 eprintln!("[DeepseekFetcher] HTTP 401 (invalid api key)");
-                return DeepseekFetch::Ok(placeholder_result(
-                    "API Key 无效 · 请检查 keys.local.json 后重新加密编译".into(),
+                return PlanFetch::Ok(placeholder_service(
+                    "API Key 无效 · 请在设置中检查".into(),
                 ));
             }
             // 402/503：余额不足或服务繁忙（官方文档仅列出这两个非认证错误码）
             402 | 503 => {
                 eprintln!("[DeepseekFetcher] HTTP {status} (insufficient balance or busy)");
-                return DeepseekFetch::Ok(placeholder_result("余额不足或服务繁忙".into()));
+                return PlanFetch::Ok(placeholder_service("余额不足或服务繁忙".into()));
             }
             _ => {
                 eprintln!("[DeepseekFetcher] HTTP {status}");
-                return DeepseekFetch::Failed;
+                return PlanFetch::Failed;
             }
         }
     }
@@ -89,7 +90,7 @@ pub async fn fetch(api_key: &str) -> DeepseekFetch {
         Ok(b) => b,
         Err(e) => {
             eprintln!("[DeepseekFetcher] invalid JSON response: {e}");
-            return DeepseekFetch::Failed;
+            return PlanFetch::Failed;
         }
     };
 
@@ -101,7 +102,7 @@ pub async fn fetch(api_key: &str) -> DeepseekFetch {
         .or_else(|| body.balance_infos.first());
     let Some(info) = info else {
         eprintln!("[DeepseekFetcher] no balance_infos in response");
-        return DeepseekFetch::Ok(placeholder_result("暂无余额数据".into()));
+        return PlanFetch::Ok(placeholder_service("暂无余额数据".into()));
     };
 
     let total = parse_amount(&info.total_balance);
@@ -109,9 +110,10 @@ pub async fn fetch(api_key: &str) -> DeepseekFetch {
     let topped = parse_amount(&info.topped_up_balance);
     let sym = currency_symbol(&info.currency);
 
-    DeepseekFetch::Ok(DeepseekResult {
+    PlanFetch::Ok(ServiceInfo {
         name: "DeepSeek".into(),
         r#type: "balance".into(),
+        vendor: "deepseek".into(),
         icon: "🐳".into(),
         color: "#4D6BFE".into(),
         balance: total,
@@ -119,6 +121,7 @@ pub async fn fetch(api_key: &str) -> DeepseekFetch {
         unit: "元".into(),
         detail: compose_detail(&sym, topped, granted, body.is_available),
         placeholder: false,
+        ..Default::default()
     })
 }
 
@@ -161,10 +164,11 @@ fn compose_detail(sym: &str, topped: f64, granted: f64, available: bool) -> Stri
 
 /// 占位结果（key 无效 / 余额不足 / 无数据时）。金额给 0，
 /// 靠 detail 说明原因——与 MiMo 占位条同思路，保证提示可见。
-fn placeholder_result(msg: String) -> DeepseekResult {
-    DeepseekResult {
+fn placeholder_service(msg: String) -> ServiceInfo {
+    ServiceInfo {
         name: "DeepSeek".into(),
         r#type: "balance".into(),
+        vendor: "deepseek".into(),
         icon: "🐳".into(),
         color: "#4D6BFE".into(),
         balance: 0.0,
@@ -172,6 +176,7 @@ fn placeholder_result(msg: String) -> DeepseekResult {
         unit: "元".into(),
         detail: msg,
         placeholder: true,
+        ..Default::default()
     }
 }
 

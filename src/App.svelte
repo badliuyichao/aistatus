@@ -8,7 +8,7 @@
   import TitleBar from "./components/TitleBar.svelte";
   import { services } from "./stores/services.svelte";
   import { theme } from "./stores/theme.svelte";
-  import { openBalanceFile, fitToContent } from "./api";
+  import { openConfigFile, fitToContent } from "./api";
   import { listen } from "@tauri-apps/api/event";
   import { formatTime } from "./types";
 
@@ -114,9 +114,9 @@
   async function editData() {
     showMenu = false;
     try {
-      await openBalanceFile();
+      await openConfigFile();
     } catch (e) {
-      console.error("open_balance_file failed", e);
+      console.error("open_config_file failed", e);
     }
   }
 
@@ -148,9 +148,9 @@
     <div class="scroll">
       <div class="cards" bind:this={cardsEl}>
         {#if services.data.services.length === 0}
-          <div class="empty">暂无数据<br /><br />请编辑 balance.json 添加服务</div>
+          <div class="empty">暂无数据<br /><br />请在右键菜单 → 设置中添加 Coding Plan</div>
         {:else}
-          {#each services.data.services as svc (svc.name)}
+          {#each services.data.services as svc (svc.id)}
             <ServiceCard service={svc} />
           {/each}
         {/if}
@@ -169,7 +169,7 @@
 {#if showMenu}
   <div class="ctx-menu" bind:this={menuEl} style="left:{menuX}px; top:{menuY}px">
     <button onclick={refresh}>刷新数据</button>
-    <button onclick={editData}>编辑数据文件</button>
+    <button onclick={editData}>编辑配置文件</button>
     <button onclick={openConfig}>设置</button>
   </div>
 {/if}
