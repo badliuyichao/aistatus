@@ -50,6 +50,8 @@ mv ~/.cargo/bin/cargo.bak ~/.cargo/bin/cargo      # 还原
 
 **完成判据**：mac / Linux 上 `pnpm build:tauri` 成功产出 `.app` / AppImage。
 
+**已验证（2026-10-19，macOS 正常路径）**：`pnpm build:tauri` 成功产出 `.app` 与 `.dmg`（x64）。本机 `~/.cargo/bin` stub 存在，走正常分支；`findToolchainBin` 回退分支仍未实测（需临时移走 cargo stub）。
+
 ### [ ] 6. macOS / Linux：悬浮球（float 窗口）定位、透明度与显隐实测
 
 **背景**：新增了第二个窗口 `label: "float"`（72×72 透明置顶悬浮球），定位逻辑：
@@ -72,6 +74,8 @@ pnpm tauri dev
 3. 托盘菜单「悬浮球」项切换显隐且勾选态同步。
 4. 60s 刷新后数字与颜色随 GLM/MiniMax 最低余量更新。
 
+**已验证（2026-10-19，macOS）**：右上角出现、背景透明、持久化位置可恢复、60s 刷新后金额变化均正常；托盘「悬浮球」勾选切换因无 GUI 自动化未实测。
+
 ### [ ] 7. macOS：悬浮条高度自适应（fit_float_window）实测
 
 **背景**：悬浮条按可见服务行数自适应高度：`state.rs::fit_float_window` =「基础 20 + 每行 20 逻辑像素」（2026-10-14 随看板显隐泛化；2026-10-20 多实例改造后按**实例行数**增长，同品牌多实例各占一行，不再按品牌去重）。平台差异：Win/Linux 底部锚定，增高后重锚右下角防压任务栏（**Windows 已实测**：60/80 两态 + 多实例 3 行 80 高均正常）；mac 走 `anchor_top_right` 重锚分支，本机无法验证。
@@ -82,6 +86,8 @@ pnpm tauri dev
 # 在设置对话框隐藏 / 删除实例：行数减少、高度回落；增高后窗口顶部应仍贴菜单栏下方
 ```
 **完成判据**：mac 上高度随可见实例行数切换正常、顶部锚定不漂移，单行可见时窗口保持 40 高。
+
+**已验证（2026-10-19，macOS）**：三家可见时高度 80（3×20+20）正确。实测发现并修复 `anchor_top_right` 的 HiDPI 单位 bug：菜单栏高度 25 被当作物理像素，Retina 2x 下算出的 y 仅 14.5 逻辑像素，被系统钳到菜单栏下沿（25），浮窗紧贴菜单栏无间隙；改为按 `scale_factor` 换算后窗口 y=29，恢复 4pt 间隙（已合入 `src-tauri/src/lib.rs`）。动态增减行数的切换未做 GUI 实测。
 
 ### [ ] 8. Windows GUI / macOS：Coding Plan 实例管理（plans）实测
 

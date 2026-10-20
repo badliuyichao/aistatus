@@ -29,6 +29,8 @@ use tauri::Rect;
 use state::AppState;
 
 /// 窗口与屏幕边缘的留白（逻辑像素；×显示器缩放换算到物理像素，保证各 DPI 下视觉间距一致）。
+/// 仅非 macOS 的右下角锚定使用；mac 走 MAC_EDGE_MARGIN。
+#[cfg(not(target_os = "macos"))]
 const RIGHT_MARGIN_LOGICAL: f64 = 40.0; // 右侧：避开浏览器滚动条等贴边元素
 const BOTTOM_GAP_LOGICAL: f64 = 12.0; // 底部：任务栏（或屏底）上方的视觉间隙
 
@@ -380,8 +382,13 @@ fn anchor_top_right(window: &tauri::WebviewWindow) {
     // 右上角：x = 屏幕右边 - 窗口宽 - 留白；
     // y = 菜单栏高度（约 25px）+ 小留白，紧贴菜单栏下方。
     let x = mon_pos.x as i32 + mon_size.width as i32 - win_size.width as i32 - MAC_EDGE_MARGIN;
-    let menu_bar_h: i32 = 25; // macOS 菜单栏固定高度
-    let y = mon_pos.y as i32 + menu_bar_h + 4;
+    // 菜单栏高度（25）与间隙（4）都是逻辑像素，必须 × 缩放换算成物理像素：
+    // 直接当物理像素用时，Retina（2x）下 y 仅 14.5 逻辑像素，会被系统钳到菜单栏
+    // 下沿（25），表现为浮窗紧贴菜单栏、没有间隙。
+    let scale = monitor.scale_factor();
+    let menu_bar_h = (25.0 * scale) as i32; // macOS 菜单栏固定高度
+    let gap = (4.0 * scale) as i32;
+    let y = mon_pos.y as i32 + menu_bar_h + gap;
     let _ = window.set_position(PhysicalPosition { x, y });
 }
 
