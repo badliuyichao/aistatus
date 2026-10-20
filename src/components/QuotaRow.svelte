@@ -84,16 +84,15 @@
     background-repeat: no-repeat;
     transition: width 0.3s ease;
   }
-  /* ∞ 不限额：满格绿色斜纹，表达「不限额、可用」，与「100% 已用」的
-     服务色/告警红区分（同悬浮条）。 */
+  /* ∞ 不限额：满格中性色斜纹，与「100% 已用」的服务色/告警红区分（同悬浮条）。 */
   .bar.infinite::after {
     width: 100%;
     background-image: repeating-linear-gradient(
       45deg,
-      rgba(110, 231, 183, 0.5),
-      rgba(110, 231, 183, 0.5) 4px,
-      rgba(16, 185, 129, 0.5) 4px,
-      rgba(16, 185, 129, 0.5) 8px
+      rgba(180, 190, 210, 0.5),
+      rgba(180, 190, 210, 0.5) 4px,
+      rgba(140, 150, 170, 0.5) 4px,
+      rgba(140, 150, 170, 0.5) 8px
     );
     background-size: auto;
   }

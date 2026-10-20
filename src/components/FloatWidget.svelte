@@ -311,15 +311,14 @@
     background-repeat: no-repeat;
     transition: width 0.4s ease;
   }
-  /* ∞ 不限额：满格绿色斜纹，表达「不限额、可用」，与「100% 已用」的
-     红和品牌色计量条区分（同主看板 QuotaRow）。 */
+  /* ∞ 不限额：满格但用中性色 + 斜纹，与「100% 已用」的红区分。 */
   .fill.infinite {
     background: repeating-linear-gradient(
       45deg,
-      rgba(110, 231, 183, 0.5),
-      rgba(110, 231, 183, 0.5) 4px,
-      rgba(16, 185, 129, 0.5) 4px,
-      rgba(16, 185, 129, 0.5) 8px
+      rgba(180, 190, 210, 0.5),
+      rgba(180, 190, 210, 0.5) 4px,
+      rgba(140, 150, 170, 0.5) 4px,
+      rgba(140, 150, 170, 0.5) 8px
     );
   }
 
