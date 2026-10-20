@@ -14,8 +14,13 @@
   //     比例需自行计算 used/total；明细（绝对值 + 已用%）放行 tooltip。
   //   - item.displayValue === "∞" 表示该窗口未计费/不限额，进度条满格灰色 + ∞ 标记。
   //   - 进度条填充用同色相「浅→深」渐变（barGradient）：渐变按整条 track 铺开，
-  //     宽度越大露出的颜色越深（5% 只有浅色，100% 露出完整深色端）；
-  //     基础色仍按已用%分级（绿<50 / 黄 50–80 / 红>80）。
+  //     宽度越大露出的颜色越深（5% 只有浅色，100% 露出完整深色端）。
+  //     色相按服务固定，且每组内上下两条再分色：
+  //       GLM（冷色组）    5小时=电光蓝 #3B82F6 / 周=翡翠绿 #34D399
+  //       MiniMax（暖色组）5小时=亮洋红 #D946EF / 周=珊瑚橙 #FB923C
+  //     先按冷暖区分两家，再看组内色相区分「5小时 / 周」；
+  //     不随用量在绿→黄之间跳变，避免两条同时变黄难以区分；
+  //     只有 ≥80% 接近耗尽时才统一转红告警。
   //   - DeepSeek：纯 prepaid 按量计费，没有「已用百分比」的语义（无分母可算），
   //     进度条无意义 → 该行不放进度条，右对齐显示余额金额；
   //     金额旁显示状态标签（安全 ≥50 绿 / 预警 10–<50 黄 / 危险 <10 红），
@@ -34,6 +39,7 @@
   import { theme } from "../stores/theme.svelte";
   import { saveFloatPosition } from "../api";
   import { balanceStatus } from "../balanceStatus";
+  import { barGradient, gradientSize } from "../barColors";
   import type { QuotaItem, ServiceInfo } from "../types";
 
   const appWindow = getCurrentWindow();
@@ -66,54 +72,6 @@
   function pctLabel(item: QuotaItem | undefined, pct: number | null): string {
     if (pct !== null) return `${Math.round(pct)}%`;
     return item?.displayValue ?? "—";
-  }
-
-  /** 进度条基础色按已用%分级：绿<50 / 黄 50–80 / 红>80。 */
-  function barColor(pct: number | null, svc?: ServiceInfo): string {
-    if (pct === null) return "var(--bar-track)"; // ∞ / N/A：灰色占位
-    if (pct >= 80) return "#ef4444"; // 红：将耗尽
-    if (pct >= 50) return "#f59e0b"; // 黄：偏高
-    return svc?.color || "#22c55e"; // 绿：充足，用品牌色
-  }
-
-  /** 把 #rgb / #rrggbb 朝 target 色混合，ratio 是 target 的占比（0–1）。 */
-  function mixColor(hex: string, target: string, ratio: number): string {
-    const parse = (h: string): [number, number, number] | null => {
-      const m = h.trim().match(/^#?([0-9a-f]{3}|[0-9a-f]{6})$/i);
-      if (!m) return null;
-      let s = m[1];
-      if (s.length === 3) s = s.split("").map((c) => c + c).join("");
-      return [
-        parseInt(s.slice(0, 2), 16),
-        parseInt(s.slice(2, 4), 16),
-        parseInt(s.slice(4, 6), 16),
-      ];
-    };
-    const a = parse(hex);
-    const b = parse(target);
-    if (!a || !b) return hex;
-    return (
-      "#" +
-      a
-        .map((v, i) => Math.round(v + (b[i] - v) * ratio).toString(16).padStart(2, "0"))
-        .join("")
-    );
-  }
-
-  /**
-   * 同色相浅→深渐变：起点接近白色，终点在基础色上压暗。
-   * 渐变按整条 track 宽度铺开（见 gradientSize），填充宽度就是已用比例，
-   * 所以 5% 只露出最浅的一段，100% 才露出完整的浅→深。
-   */
-  function barGradient(pct: number, svc?: ServiceInfo): string {
-    const base = barColor(pct, svc);
-    return `linear-gradient(90deg, ${mixColor(base, "#ffffff", 0.72)}, ${mixColor(base, "#000000", 0.22)})`;
-  }
-
-  /** 让渐变图按整条 track 的宽度铺开，而不是按当前填充宽度压缩。 */
-  function gradientSize(pct: number): string {
-    const size = pct > 0 ? 10000 / pct : 100;
-    return `${Math.round(size * 100) / 100}% 100%`;
   }
 
   const glm = $derived(findService("GLM"));
@@ -222,7 +180,7 @@
           {:else if glmWeekPct !== null}
             <div
               class="fill"
-              style="width:{glmWeekPct}%; background-image:{barGradient(glmWeekPct, glm)}; background-size:{gradientSize(glmWeekPct)}"
+              style="width:{glmWeekPct}%; background-image:{barGradient(glmWeekPct, glm, 'week')}; background-size:{gradientSize(glmWeekPct)}"
             ></div>
           {/if}
         </div>
@@ -253,7 +211,7 @@
           {:else if mmWeekPct !== null}
             <div
               class="fill"
-              style="width:{mmWeekPct}%; background-image:{barGradient(mmWeekPct, mm)}; background-size:{gradientSize(mmWeekPct)}"
+              style="width:{mmWeekPct}%; background-image:{barGradient(mmWeekPct, mm, 'week')}; background-size:{gradientSize(mmWeekPct)}"
             ></div>
           {/if}
         </div>

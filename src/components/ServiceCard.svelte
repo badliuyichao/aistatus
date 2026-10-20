@@ -45,7 +45,7 @@
         <div class="loading-row">—</div>
       {:else}
         {#each service.items as item (item.label)}
-          <QuotaRow {item} color={service.color} />
+          <QuotaRow {item} {service} />
         {/each}
       {/if}
     {:else}

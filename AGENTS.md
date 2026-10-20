@@ -56,6 +56,7 @@ Tauri 2 + Svelte 5 + TypeScript + Vite 跨平台桌面实现。
 src/                         前端
   App.svelte                 主壳：标题栏 + 卡片列表 + 页脚 + 右键菜单
   components/                ServiceCard / ConfigDialog / TitleBar / BalanceView / QuotaRow
+  barColors.ts               进度条配色（按服务 + 周期分色，悬浮条与看板共用）
   stores/services.svelte.ts  余额数据 store（services-updated 事件 + 文件变更）
   api.ts                     封装 Tauri IPC（commands + events）
   types.ts                   共享类型
@@ -169,7 +170,8 @@ keys.local.json（明文，.gitignore，仅本机）
 
 - 窗口默认隐藏，托盘菜单「打开主界面」唤起；mac 关闭按钮=隐藏（常驻托盘），仅「退出」结束进程。
 - 定位：Windows 锚主屏右下角（避任务栏，逻辑像素×缩放）；mac 跟随托盘图标。
-- 悬浮条显示 GLM / MiniMax 的「5小时限额」+「周限额」（各自在同一行内上下两条 4px 进度条，不增加窗口高度；上=5小时、下=本周，不显示右侧百分比文字，数值在 tooltip；进度条填充为同一色相浅→深渐变，已用% 越高露出的颜色越深）、MiMo 的「Token Plan 套餐」已用%，以及 DeepSeek 的余额金额（不放进度条——余额无分母，金额按余额阈值着色：红 <¥10 / 黄 <¥50；明细进 tooltip）；MiMo 未配置 Cookie / DeepSeek 未内置 key 时对应行隐藏。
+- 悬浮条显示 GLM / MiniMax 的「5小时限额」+「周限额」（各自在同一行内上下两条 4px 进度条，不增加窗口高度；上=5小时、下=本周，不显示右侧百分比文字，数值在 tooltip；进度条填充为同一色相浅→深渐变，已用% 越高露出的颜色越深。色相按服务 + 周期固定：GLM（冷色组）5小时电光蓝 `#3B82F6` / 周翡翠绿 `#34D399`，MiniMax（暖色组）5小时亮洋红 `#D946EF` / 周珊瑚橙 `#FB923C`，MiMo 橙 `#FF6900`；先按冷暖区分两家、再看组内色相区分「5小时 / 周」，不随用量在绿→黄之间跳变；仅 ≥80% 接近耗尽时统一转红 `#ef4444` 告警）、MiMo 的「Token Plan 套餐」已用%，以及 DeepSeek 的余额金额（不放进度条——余额无分母，金额按余额阈值着色：红 <¥10 / 黄 <¥50；明细进 tooltip）；MiMo 未配置 Cookie / DeepSeek 未内置 key 时对应行隐藏。
+- 主看板配额行（`QuotaRow`）的进度条与悬浮条共用 `src/barColors.ts`：同样按服务 + 周期分色、同色相浅→深渐变、≥80% 转红；`periodOfLabel` 按 label 是否含「周」判定 `week`，MiMo「Token Plan 套餐」等其余条目按单条处理。主看板的卡片标题 / 图标仍用各服务品牌色（`service.color`），与数据条颜色解耦。
 - 看板显示哪几个 Coding Plan 由用户在设置对话框勾选（`config.json` 的 `visiblePlans`，存稳定 ID `glm` / `minimax` / `mimo` / `deepseek`，与卡片显示名解耦；**至少一个**，后端 `save_visible_plans` 校验非空，前端把最后一项禁用）。过滤在**展示层**（快照出口：`get_services` / `services-updated` emit）进行，快照始终保留全量——主窗口与悬浮条同步显隐，取消隐藏可立即用缓存回显、随后刷新补数据；后台仍照常拉取全部四家。MiMo 勾选后仍需配置 Cookie 才会出卡片，DeepSeek 勾选后仍需编译期内置 key 才会出卡片。
 - 悬浮条高度随可见服务行数自适应（基础 20 + 每行 20 逻辑像素：1 行 40 / 2 行 60 / 3 行 80 / 4 行 100，`state.rs::fit_float_window`，每次刷新后调整；用户未拖过时重锚平台默认角，避免增高压到任务栏。mac 为顶部锚定，`set_size` 后左上角不动，重锚逻辑已按平台分支但未在 mac 实测）。
 - 窗口高度自适应卡片数量（`fit_to_content` command + 前端 `ResizeObserver`）。

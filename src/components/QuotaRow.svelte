@@ -1,11 +1,19 @@
 <script lang="ts">
   // 配额行：标签 + 已用/总量 + 进度条 + 详情。
-  import type { QuotaItem } from "../types";
+  // 进度条配色与悬浮条共用 barColors（按服务 + 周期分色）。
+  import type { QuotaItem, ServiceInfo } from "../types";
   import { percentage } from "../types";
+  import { barGradient, gradientSize, periodOfLabel } from "../barColors";
 
-  let { item, color }: { item: QuotaItem; color: string } = $props();
+  let { item, service }: { item: QuotaItem; service: ServiceInfo } = $props();
 
   let pct = $derived(percentage(item));
+  let infinite = $derived(item.displayValue === "∞");
+  let period = $derived(periodOfLabel(item.label));
+  // 渐变串与展开尺寸放进 CSS 变量，供伪元素 ::after 使用。
+  let barVars = $derived(
+    `--pct:${pct}%; --gradient:${barGradient(pct, service, period)}; --size:${gradientSize(pct)};`
+  );
   let valueText = $derived(
     item.displayValue ?? `${fmtNum(item.used)}/${fmtNum(item.total)} ${item.unit}`
   );
@@ -25,7 +33,7 @@
       title={item.displayValue === "∞" ? "无限额" : undefined}
     >{valueText}</span>
   </div>
-  <div class="bar" style="--pct:{pct}%; --color:{color};"></div>
+  <div class="bar" class:infinite={infinite} style={barVars}></div>
   {#if item.detail}
     <div class="detail">{item.detail}</div>
   {/if}
@@ -69,10 +77,24 @@
     height: 100%;
     width: var(--pct);
     border-radius: 4px;
-    /* 直接用品牌色（旧实现用 color-mix 做半透明渐变，但 color-mix 需 Safari 16.4+，
-       macOS 12 / 老 WebView2 不支持，会导致进度条填充透明不可见）。纯色全平台兼容。 */
-    background: var(--color);
+    /* 渐变串由 barColors 在 JS 里生成，避免 color-mix（Safari 16.4 / 老 WebView2 不支持）；
+       background-size 让渐变按整条 track 铺开，填充越宽露出的颜色越深。 */
+    background-image: var(--gradient);
+    background-size: var(--size);
+    background-repeat: no-repeat;
     transition: width 0.3s ease;
+  }
+  /* ∞ 不限额：满格中性色斜纹，与「100% 已用」的服务色/告警红区分（同悬浮条）。 */
+  .bar.infinite::after {
+    width: 100%;
+    background-image: repeating-linear-gradient(
+      45deg,
+      rgba(180, 190, 210, 0.5),
+      rgba(180, 190, 210, 0.5) 4px,
+      rgba(140, 150, 170, 0.5) 4px,
+      rgba(140, 150, 170, 0.5) 8px
+    );
+    background-size: auto;
   }
   .detail {
     color: var(--text-muted);
