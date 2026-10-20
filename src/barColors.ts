@@ -4,8 +4,14 @@
 //   GLM（冷色组）    5小时 电光蓝 #3B82F6 / 周 翡翠绿 #34D399
 //   MiniMax（暖色组）5小时 亮洋红 #D946EF / 周 珊瑚橙 #FB923C
 //   MiMo             单条，品牌橙 #FF6900
-// 未知服务回退到服务品牌色。用量 ≥80% 时统一转红告警，
-// 其余情况颜色不随用量变化（避免两条同时变黄无法区分）。
+// 未知服务回退到服务品牌色。
+//
+// 仅 GLM 的 5 小时条是固定色带：淡蓝 → 品牌蓝 → 蓝紫 → 深红
+// #B91C1C 的四段渐变（中间锚点避免直接蓝→红的灰紫塌陷），配合
+// gradientSize 按填充宽度从左往右揭示——低用量只见淡蓝端，越高
+// 露出越多红端，满格完整呈现（丝滑过渡，无阈值跳变）。其余条目
+// （周限额、MiniMax / MiMo）填充为同色相「浅→深」渐变，底色
+// ≥80% 统一转红 #ef4444 告警。
 //
 // 填充仍用同色相「浅→深」渐变：渐变按整条 track 铺开（gradientSize），
 // 填充越宽露出的颜色越深。渐变字符串在 JS 里生成，不用 color-mix
@@ -39,7 +45,11 @@ export function barAccent(svc: BarService | undefined, period: BarPeriod = "5h")
   return svc?.color || "#22c55e";
 }
 
-/** 进度条底色：服务固定色；≥80% 将耗尽时统一转红告警。 */
+/** GLM 5 小时色带右端：深红。 */
+const FIVE_H_RAMP_END = "#B91C1C";
+
+/** 进度条底色（非 GLM 色带路径的渐变基色）：服务固定色；
+ *  ≥80% 将耗尽时统一转红告警。 */
 export function barColor(
   pct: number | null,
   svc: BarService | undefined,
@@ -74,15 +84,28 @@ function mixColor(hex: string, target: string, ratio: number): string {
   );
 }
 
+/** GLM 5 小时色带：淡蓝 → 品牌蓝 → 蓝紫 → 深红的四段固定渐变。
+ *  单段 RGB 插值从「很浅的蓝」直达「很深的红」会穿过发灰的绛紫
+ *  （两端明度落差大、中段饱和度塌陷，观感发脏）；用品牌蓝与蓝紫
+ *  做两个中间锚点，每段色相差短、饱和度全程在线，过渡才丝滑。
+ *  色带固定、不随 pct 变化——pct 只决定揭示多少（见 gradientSize）。 */
+function glmFiveHSpectrum(): string {
+  return `linear-gradient(90deg, #a9cdff 0%, #3b82f6 40%, #8b7cf7 72%, ${FIVE_H_RAMP_END} 100%)`;
+}
+
 /**
- * 同色相浅→深渐变：起点是掺白的品牌色，终点在基础色上压暗。
- * 白混合比例取 0.55：低用量时也能看清是哪个服务的颜色（0.72 会淡到发灰）。
+ * 填充渐变。GLM 5 小时条用固定色带（淡蓝→深红，配合 gradientSize
+ * 按用量揭示）；其余用同色相「浅→深」渐变：起点掺白 0.55（低用量
+ * 也能看清品牌色，0.72 会淡到发灰），终点在底色上压暗 0.22。
  */
 export function barGradient(
   pct: number,
   svc: BarService | undefined,
   period: BarPeriod = "5h"
 ): string {
+  if (period === "5h" && svc?.vendor === "glm") {
+    return glmFiveHSpectrum();
+  }
   const base = barColor(pct, svc, period);
   return `linear-gradient(90deg, ${mixColor(base, "#ffffff", 0.55)}, ${mixColor(base, "#000000", 0.22)})`;
 }
