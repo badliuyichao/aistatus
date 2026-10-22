@@ -132,6 +132,17 @@ pnpm tauri dev
 ```
 **完成判据**：迁移一次性完成且幂等（二次启动不再重写）；卡片 / 悬浮条与 Windows 行为一致。
 
+### [ ] 14. macOS：最大化 / 全屏时跳过窗口高度自适应（2026-10-21）
+
+**背景**：修复 Windows 上「最大化按钮无效」（窗口被 `fit_to_content` 的 `set_size` 打回内容高度）时，在 `fit_to_content` 增加 `is_maximized() || is_fullscreen()` 提前返回。该 guard 同样作用于 macOS 绿色全屏按钮：预期全屏时不再被内容自适应拉回，退出全屏后自适应恢复。Windows 已实测；mac 未测。
+**验证/操作方法**（在 mac 上）：
+```bash
+pnpm tauri dev
+# 打开主窗口 → 点绿色全屏按钮 → 确认保持全屏、不被拉回内容高度
+# 退出全屏 → 确认窗口恢复正常尺寸，并继续随卡片数量自适应高度
+```
+**完成判据**：全屏进入/退出均正常，非全屏时高度自适应照常生效。
+
 ### [ ] 15. Windows：新版（msvc）exe / 安装包在另一台电脑免 DLL 直跑实测（2026-10-22）
 
 **背景**：此前 `pnpm build:tauri` 实际走的是 rustup 默认工具链 gnu（`~/.cargo/bin` 的 rustup 代理按 default 解析，`build.mjs` 的 msvc 兜底只在 stub 缺失时生效），产出 gnu 版 exe——WebView2 加载器是动态链接，单独分发 exe 必报「找不到 WebView2Loader.dll」，且 NSIS 安装包只装 exe 不带该 DLL（装 WebView2 运行时无效，缺的不是运行时）。`scripts/build.mjs` 已改为 Windows 无条件强制 msvc：msvc 下加载器静态链接进 exe，产物自包含。本机已验证新 exe 导入表无 `WebView2Loader.dll`；「另一台电脑直跑」无法在本机确认。

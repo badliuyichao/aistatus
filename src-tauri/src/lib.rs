@@ -338,6 +338,12 @@ fn anchor_to_bottom_right(window: &tauri::WebviewWindow) {
 /// 用 primary_monitor 取主屏（与启动锚定一致），后端调窗口不受 capability 限制。
 #[tauri::command]
 fn fit_to_content(height: f64, window: tauri::WebviewWindow) -> Result<(), String> {
+    // 最大化 / 全屏时忽略内容自适应：下面的 set_size 会让窗口退出最大化状态
+    // （表现为点最大化后只变宽、is_maximized 仍为 false、按钮不出现「还原」态）。
+    // 用户还原后 ResizeObserver 会再次触发，自适应照常生效。
+    if window.is_maximized().unwrap_or(false) || window.is_fullscreen().unwrap_or(false) {
+        return Ok(());
+    }
     let monitor = window
         .primary_monitor()
         .map_err(|e| e.to_string())?
