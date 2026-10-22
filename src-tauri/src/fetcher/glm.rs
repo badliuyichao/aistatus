@@ -7,7 +7,8 @@
 //! 关键解析逻辑：
 //!   - body.code != 200 或无 data → Failed
 //!   - data.limits 为空 → Failed
-//!   - limit.type == "TIME_LIMIT" 且 usage>0 → 「工具调用」次条（绝对值，追加末尾）
+//!   - limit.type == "TIME_LIMIT" 且 usage>0 → 「工具调用」次条（绝对值，追加末尾；
+//!     仅积分制套餐保留，token 计量的老套餐不产出）
 //!   - limit.type == "TOKENS_LIMIT"：
 //!       unit==3,num==5 → 「5小时限额」
 //!       unit==6,num==1 → 「周限额」
@@ -130,35 +131,68 @@ pub async fn fetch(api_key: &str) -> PlanFetch {
         ));
     }
 
-    let now_ms = now_ms();
+    let items = parse_quota_items(data.limits, now_ms());
+
+    if items.is_empty() {
+        eprintln!("[GlmFetcher] limits parsed to 0 usable items");
+        return PlanFetch::Ok(placeholder_service(
+            "未查询到 Coding Plan 用量 · 请确认该账号已开通".into(),
+        ));
+    }
+
+    // 标题后缀：level 非空 → 「GLM 智谱AI · {LEVEL 大写}」
+    let name = match level.as_str() {
+        "" => "GLM 智谱AI".to_string(),
+        lv => format!("GLM 智谱AI · {}", lv.to_uppercase()),
+    };
+
+    PlanFetch::Ok(ServiceInfo {
+        name,
+        r#type: "quota".into(),
+        vendor: "glm".into(),
+        icon: "🔷".into(),
+        color: "#2563EB".into(),
+        items,
+        ..Default::default()
+    })
+}
+
+/// 把 GLM limits 数组解析为配额条目（纯函数，便于单测）。
+///
+/// TIME_LIMIT（工具调用次数）只在积分制套餐（limits 含 CREDIT_LIMIT）保留，
+/// token 计量的老套餐不产出该条目——工具调用进度在老套餐卡片上隐藏。
+fn parse_quota_items(limits: Vec<GlmLimit>, now_ms: f64) -> Vec<QuotaItem> {
+    let is_credit_plan = limits.iter().any(|l| l.limit_type == "CREDIT_LIMIT");
 
     let mut items: Vec<QuotaItem> = Vec::new();
     let mut tool_item: Option<QuotaItem> = None;
 
-    for limit in data.limits {
+    for limit in limits {
         let total_val = limit.usage;
         let used_val = limit.current_value;
         // percentage 缺省按 0 处理，不因字段缺失跳过整条。
         let pct = limit.percentage;
 
         if limit.limit_type == "TIME_LIMIT" {
-            // 工具调用次数项：只有 usage>0 才加入。
-            if let Some(t) = total_val {
-                if t > 0.0 {
-                    let used = used_val.unwrap_or(0.0);
-                    let reset = fmt_duration(limit.next_reset_time.unwrap_or(0.0) - now_ms);
-                    tool_item = Some(QuotaItem {
-                        label: "工具调用".into(),
-                        display_value: None,
-                        used,
-                        total: t,
-                        unit: "次".into(),
-                        detail: if reset.is_empty() {
-                            String::new()
-                        } else {
-                            format!("{reset}后重置")
-                        },
-                    });
+            // 工具调用次数项：仅积分制套餐保留，usage>0 才加入。
+            if is_credit_plan {
+                if let Some(t) = total_val {
+                    if t > 0.0 {
+                        let used = used_val.unwrap_or(0.0);
+                        let reset = fmt_duration(limit.next_reset_time.unwrap_or(0.0) - now_ms);
+                        tool_item = Some(QuotaItem {
+                            label: "工具调用".into(),
+                            display_value: None,
+                            used,
+                            total: t,
+                            unit: "次".into(),
+                            detail: if reset.is_empty() {
+                                String::new()
+                            } else {
+                                format!("{reset}后重置")
+                            },
+                        });
+                    }
                 }
             }
             continue;
@@ -223,29 +257,7 @@ pub async fn fetch(api_key: &str) -> PlanFetch {
     if let Some(ti) = tool_item {
         items.push(ti);
     }
-
-    if items.is_empty() {
-        eprintln!("[GlmFetcher] limits parsed to 0 usable items");
-        return PlanFetch::Ok(placeholder_service(
-            "未查询到 Coding Plan 用量 · 请确认该账号已开通".into(),
-        ));
-    }
-
-    // 标题后缀：level 非空 → 「GLM 智谱AI · {LEVEL 大写}」
-    let name = match level.as_str() {
-        "" => "GLM 智谱AI".to_string(),
-        lv => format!("GLM 智谱AI · {}", lv.to_uppercase()),
-    };
-
-    PlanFetch::Ok(ServiceInfo {
-        name,
-        r#type: "quota".into(),
-        vendor: "glm".into(),
-        icon: "🔷".into(),
-        color: "#2563EB".into(),
-        items,
-        ..Default::default()
-    })
+    items
 }
 
 /// 401/403 占位卡片：两条配额条 detail 带原因，保证提示可见。
@@ -352,5 +364,58 @@ mod tests {
         assert_eq!(fmt_duration(26.0 * 86400.0 * 1000.0), "26天0小时");
         assert_eq!(fmt_duration(0.0), "");
         assert_eq!(fmt_duration(-1000.0), "");
+    }
+
+    /// 构造测试用 limit 条目（nextResetTime 缺省 None）。
+    fn limit(
+        limit_type: &str,
+        usage: Option<f64>,
+        current_value: Option<f64>,
+        percentage: f64,
+        unit: Option<i64>,
+        number: Option<i64>,
+    ) -> GlmLimit {
+        GlmLimit {
+            limit_type: limit_type.into(),
+            usage,
+            current_value,
+            percentage,
+            unit,
+            number,
+            next_reset_time: None,
+        }
+    }
+
+    #[test]
+    fn token_plan_hides_tool_call_item() {
+        // token 老套餐（无 CREDIT_LIMIT）：TIME_LIMIT 工具调用不产出条目
+        let items = parse_quota_items(
+            vec![
+                limit("TOKENS_LIMIT", Some(10000.0), Some(2000.0), 20.0, Some(3), Some(5)),
+                limit("TOKENS_LIMIT", Some(80000.0), Some(100.0), 0.125, Some(6), Some(1)),
+                limit("TIME_LIMIT", Some(10.0), Some(1.0), 0.0, None, None),
+            ],
+            0.0,
+        );
+        assert_eq!(
+            items.iter().map(|i| i.label.as_str()).collect::<Vec<_>>(),
+            vec!["5小时限额", "周限额"]
+        );
+    }
+
+    #[test]
+    fn credit_plan_keeps_tool_call_item() {
+        // 积分制套餐：TIME_LIMIT 工具调用保留且追加末尾
+        let items = parse_quota_items(
+            vec![
+                limit("CREDIT_LIMIT", Some(2000.0), Some(500.0), 25.0, Some(3), Some(5)),
+                limit("TIME_LIMIT", Some(10.0), Some(1.0), 0.0, None, None),
+            ],
+            0.0,
+        );
+        assert_eq!(
+            items.iter().map(|i| i.label.as_str()).collect::<Vec<_>>(),
+            vec!["5小时限额", "工具调用"]
+        );
     }
 }
