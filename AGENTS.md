@@ -61,7 +61,9 @@ src/                         前端
   App.svelte                 主壳：标题栏 + 卡片列表 + 页脚 + 右键菜单
   components/                ServiceCard / ConfigDialog / TitleBar / BalanceView / QuotaRow / FloatWidget
   barColors.ts               进度条配色（按 vendor + 周期分色，悬浮条与看板共用）
+  balanceStatus.ts           DeepSeek 余额阈值分级（安全 / 预警 / 危险，看板与悬浮条共用）
   stores/services.svelte.ts  余额数据 store（services-updated 事件订阅）
+  stores/theme.svelte.ts     主题偏好 store（system/dark/light，跨窗口同步）
   api.ts                     封装 Tauri IPC（commands + events）
   types.ts                   共享类型（ServiceInfo 含 id/vendor/label；PlanConfig 实例配置）
 src-tauri/
@@ -195,7 +197,7 @@ config.json 里内置实例只存 `{builtin: 序号}` 引用 + 备注 / 显隐�
 - 主看板配额行（`QuotaRow`）的进度条与悬浮条共用 `src/barColors.ts`：同样按 vendor + 周期分色、同色相浅→深渐变，仅 GLM 5 小时条为淡蓝→深红固定色带，其余条目不做阈值变色；`periodOfLabel` 按 label 是否含「周」判定 `week`，MiMo「Token Plan 套餐」等其余条目按单条处理。卡片标题 / 图标仍用各实例品牌色（`service.color`），与数据条颜色解耦。
 - **实例显隐、增删与排序**在设置对话框「Coding Plan 管理」区完成（`config.json` 的 `plans`，每实例 `visible`；**至少保留一个实例、至少一个可见**，后端 `save_plans` 校验、前端禁用最后一项的删除 / 取消勾选）。**显示顺序 = plans 数组顺序**（主窗口卡片与悬浮条一致），列表行内 ↑↓ 按钮调序、整表乐观保存。过滤在**展示层**（快照出口：`get_services` / `services-updated` emit）进行，快照始终保留全量——主窗口与悬浮条同步显隐，取消隐藏可立即用缓存回显、随后刷新补数据；隐藏实例后台仍照常拉取。MiMo 实例需 Cookie 才出卡片，其余实例需 key（内置实例凭据走编译期密文）。右键菜单「编辑配置文件」用系统默认编辑器打开 config.json。
 - 悬浮条宽 220（品牌列 76 + 进度条 ~118；改宽需同步 `state.rs` 的 `FLOAT_WIDTH` 与 `tauri.conf.json` 的 float 窗口宽度两处）；高度随可见服务行数自适应（基础 20 + 每行 20 逻辑像素，多实例按实际行数增长，`state.rs::fit_float_window`，每次刷新后调整；宽度不符时一并修正，保存过位置的窗口加宽后左移补偿防止贴右缘出屏；用户未拖过时重锚平台默认角，避免增高压到任务栏。mac 为顶部锚定，`set_size` 后左上角不动，重锚逻辑已按平台分支但未在 mac 实测）。
-- 窗口高度自适应卡片数量（`fit_to_content` command + 前端 `ResizeObserver`）。
+- 窗口高度自适应卡片数量（`fit_to_content` command + 前端 `ResizeObserver`）；最大化 / 全屏时跳过自适应（`set_size` 会把窗口拉出最大化态，表现为最大化无效），还原后恢复。
 - 刷新：启动一次 + 每 60s 定时；F5 手动刷新。plans 每轮现读 config.json，实例增删 / 换 key / 改 Cookie 无需重启。
 - MiMo 卡片是可选服务（三态 `PlanFetch`）：未配置 Cookie 不显示卡片；偶发拉取失败显示 N/A；Cookie 失效显示明确提示条。MiMo 的 `QuotaItem.used/total` 是**原始额度**（非 0–100 百分比），API 的 `percent` 是 0–1 小数，展示百分比需自行换算（见 `to_quota_item` 与悬浮条 `usedPct`）。周期重置倒计时来自 `tokenPlan/detail` 的 `currentPeriodEnd`（北京时间字符串），换算成「N天后重置」拼进 Token Plan 套餐条的 detail；该请求失败只少文案，不影响主数据。
 - DeepSeek 每实例一张余额卡（可配多个 key）：空 key 不显示卡片（`Skipped`）；偶发拉取失败显示 N/A；401 key 无效 / 402、503 余额不足或繁忙显示明确占位提示（占位时金额显示 ¥0.00，原因在 detail）。余额型走 `ServiceInfo` 的 balance 分支（`BalanceView` 大号金额 + detail 充值 / 赠送拆分）；金额旁显示状态标签（安全 ≥¥50 绿 / 预警 ¥10–<¥50 黄 / 危险 <¥10 红），`placeholder=true` 的错误占位不显示状态；`is_available=false` 时 detail 附「余额不足，请及时充值」。

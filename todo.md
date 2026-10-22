@@ -1,7 +1,7 @@
 # TODO — 待确认 / 待办事项
 
 > 本次（2026-06-30）改动中，**本机为 Windows、无法在此验证** 的事项，以及相关后续待办。
-> 用法与格式约定见 `CLAUDE.md`「TODO 清单（todo.md）」。
+> 用法与格式约定见 `AGENTS.md`「TODO 清单（todo.md）」。
 
 ---
 
@@ -168,7 +168,7 @@ pnpm tauri dev
 ### [ ] 4. （可选）重装 rustup，根治 cargo PATH stub
 
 **背景**：本机 `~/.cargo/bin` 下 rustup 代理 stub 缺失，`cargo` 不在 PATH。`scripts/build.mjs` 已兜底，日常构建不受影响；此项为根治。
-**操作**：见 `CLAUDE.md`「构建与打包 → 构建环境前提 → 根治」（PowerShell 跑 `rustup-init -y --default-toolchain stable-x86_64-pc-windows-msvc`）。
+**操作**：见 `AGENTS.md`「构建与打包 → 构建环境前提 → 根治」（PowerShell 跑 `rustup-init -y --default-toolchain stable-x86_64-pc-windows-msvc`）。
 **完成判据**：新开终端 `where cargo` 能命中 `~/.cargo/bin/cargo.exe`。
 
 ### [ ] 5. （视情况）卸载旧 identifier 的安装版
