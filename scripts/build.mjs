@@ -40,7 +40,22 @@ const env = { ...process.env };
 // Tauri 的 beforeBuildCommand 由系统 shell 执行；确保它能找到当前运行
 // 此脚本的 Node 可执行文件，即使 PATH 里只有 PowerShell shim。
 const extra = [path.dirname(process.execPath)];
-if (fs.existsSync(path.join(cargoBin, `cargo${exe}`))) {
+// Windows 无条件强制 msvc（AGENTS.md「构建环境前提」）：~/.cargo/bin 的 rustup
+// 代理按默认工具链解析，而本机默认是 gnu——gnu 产物把 WebView2 加载器动态链接为
+// WebView2Loader.dll（msvc 下静态链接进 exe），单独分发 exe 会报「找不到
+// WebView2Loader.dll」。把 msvc toolchain bin 放到 PATH 最前 + 设 RUSTUP_TOOLCHAIN，
+// 双保险绕开代理的默认解析。
+const msvcBin = isWin ? findToolchainBin() : null;
+if (isWin && !msvcBin) {
+  console.warn(
+    "[build] 警告：未找到 msvc toolchain，将回退默认工具链（若是 gnu，产物需随附 WebView2Loader.dll 才能在其他机器运行）",
+  );
+}
+if (msvcBin) {
+  extra.push(msvcBin);
+  env.RUSTUP_TOOLCHAIN = path.basename(path.dirname(msvcBin));
+  console.log(`[build] Windows 强制 msvc 工具链：${env.RUSTUP_TOOLCHAIN}`);
+} else if (fs.existsSync(path.join(cargoBin, `cargo${exe}`))) {
   extra.push(cargoBin); // 正常：rustup stub 在
 } else {
   const toolchainBin = findToolchainBin();

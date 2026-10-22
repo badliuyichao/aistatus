@@ -132,6 +132,12 @@ pnpm tauri dev
 ```
 **完成判据**：迁移一次性完成且幂等（二次启动不再重写）；卡片 / 悬浮条与 Windows 行为一致。
 
+### [ ] 15. Windows：新版（msvc）exe / 安装包在另一台电脑免 DLL 直跑实测（2026-10-22）
+
+**背景**：此前 `pnpm build:tauri` 实际走的是 rustup 默认工具链 gnu（`~/.cargo/bin` 的 rustup 代理按 default 解析，`build.mjs` 的 msvc 兜底只在 stub 缺失时生效），产出 gnu 版 exe——WebView2 加载器是动态链接，单独分发 exe 必报「找不到 WebView2Loader.dll」，且 NSIS 安装包只装 exe 不带该 DLL（装 WebView2 运行时无效，缺的不是运行时）。`scripts/build.mjs` 已改为 Windows 无条件强制 msvc：msvc 下加载器静态链接进 exe，产物自包含。本机已验证新 exe 导入表无 `WebView2Loader.dll`；「另一台电脑直跑」无法在本机确认。
+**验证/操作方法**（在另一台 Windows 电脑上）：只拷新版 `src-tauri/target/release/aistatus.exe`（或重装 `bundle/nsis/AI余额监控_0.4.0_x64-setup.exe`）到不含任何 DLL 的目录直接启动；若目标机缺 WebView2 运行时（部分 Win10 精简版 / Server），用 NSIS 安装包会自动下载。
+**完成判据**：不伴随任何 DLL 直跑成功，托盘出现并能打开主界面。
+
 ---
 
 ## 🧹 其他待办（非阻塞）

@@ -106,11 +106,18 @@ node scripts/fetch-icon.mjs <slug> [保存名]  # 下载品牌图标（见「品
 
 ### 构建环境前提（Windows，重要）
 
-1. **必须用 MSVC 工具链** `stable-x86_64-pc-windows-msvc`。
-   gnu target 的 `cdylib` 导出符号数会撞 GNU ld 序号上限（>65535），链接失败。
+1. **必须用 MSVC 工具链** `stable-x86_64-pc-windows-msvc`。gnu 产物有两个坑：
+   - `cdylib` 导出符号数会撞 GNU ld 序号上限（>65535），链接失败；
+   - WebView2 加载器在 gnu 下是**动态链接**（msvc 下静态链接进 exe）——gnu 版 exe 单独分发
+     到其他机器必报「找不到 WebView2Loader.dll」（2026-10-22 实际翻车；装 WebView2 运行时
+     无效，缺的不是运行时），NSIS 安装包也只装 exe 不带这个 DLL。分发前可用
+     `objdump -p aistatus.exe | grep -i webview` 自检：msvc 产物导入表应无 `WebView2Loader.dll`。
 2. **需要 Visual Studio Build Tools**（MSVC linker `link.exe`）；rustc 通过 vswhere/注册表自动发现，无需手动 vcvars。
 3. **cargo 必须在 PATH**。本机坑：`~/.cargo/bin` 下 rustup 代理 stub 缺失，`cargo` 找不到。
-   - `pnpm build:tauri`（`scripts/build.mjs`）自动兜底：若 `~/.cargo/bin/cargo.exe` 不存在，回退到 `~/.rustup/toolchains/stable-x86_64-pc-windows-msvc/bin`。
+   - `pnpm build:tauri`（`scripts/build.mjs`）Windows **无条件强制 msvc**：把
+     `~/.rustup/toolchains/stable-x86_64-pc-windows-msvc/bin` 置于 PATH 最前并设
+     `RUSTUP_TOOLCHAIN`，即使 `~/.cargo/bin/cargo.exe`（rustup 代理，会解析到默认工具链 gnu）
+     存在也不走 gnu；msvc toolchain 缺失时告警回退。
    - 根治（重建 stub，需自行在 PowerShell 运行）：
      ```powershell
      Invoke-WebRequest https://win.rustup.rs/x86_64 -OutFile rustup-init.exe
