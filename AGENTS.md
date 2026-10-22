@@ -16,6 +16,7 @@ Tauri 2 + Svelte 5 + TypeScript + Vite 跨平台桌面实现。
   - 平台差异用 `#[cfg(target_os = ...)]`（Rust）或 `process.platform`（Node）显式分支，不假设单一平台。
   - 涉及平台相关行为（毛玻璃、窗口定位、托盘、菜单栏）的改动，在本文档标注各平台差异。
   - 尽量在对应平台验证；本机无法验证的平台（如本机为 Windows 时改了 mac 代码），要在提交说明里标注「未在某平台实测」并附验证建议。
+- **每次改动都要维护版本号**：升 `package.json` 的 `version` 并随同一提交提交（升档约定与配套动作见「版本管理」）。
 
 ## TODO 清单（todo.md）
 
@@ -179,6 +180,8 @@ config.json 里内置实例只存 `{builtin: 序号}` 引用 + 备注 / 显隐�
 ## 版本管理
 
 **单一真相源 = `package.json` 的 `version`**，勿单独改 `tauri.conf.json` 或 `Cargo.toml`。
+
+**每次改动都要维护版本号（硬性规则）**：任何代码 / 行为改动——新功能、缺陷修复、UI / 文案调整、依赖或构建变更——都必须在**同一提交**里升 `package.json` 的 `version`，保证每个可构建产物都有唯一版本可区分。升档约定：新功能 / 行为变化 +0.1.0（如 0.4.0 → 0.5.0），缺陷修复 / 文案微调 +0.0.1（如 0.4.0 → 0.4.1）；纯文档（本文件 / README / todo.md）与 CI 调整不升版本。升完跑 `pnpm sync-version` 同步 `tauri.conf.json` + `Cargo.toml`（build 前也会自动跑），`Cargo.lock` 的版本行随之更新、一并提交。
 
 发新版本流程：
 
