@@ -84,7 +84,7 @@
     background-repeat: no-repeat;
     transition: width 0.3s ease;
   }
-  /* ∞ 不限额：满格中性色斜纹，与「100% 已用」的服务色/告警红区分（同悬浮条）。 */
+  /* ∞ 不限额：满格中性色斜纹，与「100% 已用」的同色相深色区分（同悬浮条）。 */
   .bar.infinite::after {
     width: 100%;
     background-image: repeating-linear-gradient(

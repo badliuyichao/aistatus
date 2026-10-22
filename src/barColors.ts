@@ -6,15 +6,14 @@
 //   MiMo             单条，品牌橙 #FF6900
 // 未知服务回退到服务品牌色。
 //
-// 仅 GLM 的 5 小时条是固定色带：淡蓝 → 品牌蓝 → 蓝紫 → 深红
-// #B91C1C 的四段渐变（中间锚点避免直接蓝→红的灰紫塌陷），配合
-// gradientSize 按填充宽度从左往右揭示——低用量只见淡蓝端，越高
-// 露出越多红端，满格完整呈现（丝滑过渡，无阈值跳变）。其余条目
-// （周限额、MiniMax / MiMo）填充为同色相「浅→深」渐变，底色
-// ≥80% 统一转红 #ef4444 告警。
+// 仅 GLM 的 5 小时条是固定色带：淡蓝 → 品牌蓝 → 紫罗兰 → 玫红 →
+// 深红 #B91C1C 的五段渐变，配合 gradientSize 按填充宽度从左往右
+// 揭示——低用量只见淡蓝端，越高露出越多红端，满格完整呈现（丝滑
+// 过渡，无阈值跳变）。其余条目（周限额、MiniMax / MiMo）色相恒定、
+// 不做阈值变色：填充为同色相「浅→深」渐变，随填充变宽露出更深的
+// 颜色，用量语义由深浅表达、全程无跳变。
 //
-// 填充仍用同色相「浅→深」渐变：渐变按整条 track 铺开（gradientSize），
-// 填充越宽露出的颜色越深。渐变字符串在 JS 里生成，不用 color-mix
+// 渐变字符串在 JS 里生成，不用 color-mix
 // （Safari 16.4 / 老 WebView2 不支持 color-mix）。
 
 import type { ServiceInfo } from "./types";
@@ -48,18 +47,6 @@ export function barAccent(svc: BarService | undefined, period: BarPeriod = "5h")
 /** GLM 5 小时色带右端：深红。 */
 const FIVE_H_RAMP_END = "#B91C1C";
 
-/** 进度条底色（非 GLM 色带路径的渐变基色）：服务固定色；
- *  ≥80% 将耗尽时统一转红告警。 */
-export function barColor(
-  pct: number | null,
-  svc: BarService | undefined,
-  period: BarPeriod = "5h"
-): string {
-  if (pct === null) return "var(--bar-track)"; // ∞ / N/A：灰色占位
-  if (pct >= 80) return "#ef4444"; // 红：将耗尽
-  return barAccent(svc, period);
-}
-
 /** 把 #rgb / #rrggbb 朝 target 色混合，ratio 是 target 的占比（0–1）。 */
 function mixColor(hex: string, target: string, ratio: number): string {
   const parse = (h: string): [number, number, number] | null => {
@@ -84,19 +71,23 @@ function mixColor(hex: string, target: string, ratio: number): string {
   );
 }
 
-/** GLM 5 小时色带：淡蓝 → 品牌蓝 → 蓝紫 → 深红的四段固定渐变。
+/** GLM 5 小时色带：淡蓝 → 品牌蓝 → 紫罗兰 → 玫红 → 深红的五段固定渐变。
  *  单段 RGB 插值从「很浅的蓝」直达「很深的红」会穿过发灰的绛紫
- *  （两端明度落差大、中段饱和度塌陷，观感发脏）；用品牌蓝与蓝紫
- *  做两个中间锚点，每段色相差短、饱和度全程在线，过渡才丝滑。
+ *  （两端明度落差大、中段饱和度塌陷，观感发脏）；而中间锚点若取
+ *  偏亮的淡紫（如 #8b7cf7）会比品牌蓝更亮，后半段出现一截「发白
+ *  变浅」的色带。这里每个中间锚点的相对明度都低于前一个
+ *  （蓝 #3b82f6 ≈0.26 → 紫 #7c3aed ≈0.13 → 玫红 #be123c ≈0.12），
+ *  色相沿 217°→262°→345°→0° 单调推进，过渡自然、全程不回升。
  *  色带固定、不随 pct 变化——pct 只决定揭示多少（见 gradientSize）。 */
 function glmFiveHSpectrum(): string {
-  return `linear-gradient(90deg, #a9cdff 0%, #3b82f6 40%, #8b7cf7 72%, ${FIVE_H_RAMP_END} 100%)`;
+  return `linear-gradient(90deg, #a9cdff 0%, #3b82f6 40%, #7c3aed 64%, #be123c 86%, ${FIVE_H_RAMP_END} 100%)`;
 }
 
 /**
  * 填充渐变。GLM 5 小时条用固定色带（淡蓝→深红，配合 gradientSize
- * 按用量揭示）；其余用同色相「浅→深」渐变：起点掺白 0.55（低用量
- * 也能看清品牌色，0.72 会淡到发灰），终点在底色上压暗 0.22。
+ * 按用量揭示）；其余保持各自固定色相：同色相「浅→深」渐变，起点
+ * 掺白 0.55（低用量也能看清品牌色，0.72 会淡到发灰），终点在底色
+ * 上压暗 0.22，填充越宽露出的颜色越深——全程无阈值跳变。
  */
 export function barGradient(
   pct: number,
@@ -106,7 +97,7 @@ export function barGradient(
   if (period === "5h" && svc?.vendor === "glm") {
     return glmFiveHSpectrum();
   }
-  const base = barColor(pct, svc, period);
+  const base = barAccent(svc, period);
   return `linear-gradient(90deg, ${mixColor(base, "#ffffff", 0.55)}, ${mixColor(base, "#000000", 0.22)})`;
 }
 
