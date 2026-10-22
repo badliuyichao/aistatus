@@ -187,18 +187,17 @@ pub async fn fetch(api_key: &str) -> PlanFetch {
             if let Some(t) = total_val {
                 if t > 0.0 {
                     let used = used_val.unwrap_or(0.0);
+                    let reset = fmt_duration(limit.next_reset_time.unwrap_or(0.0) - now_ms);
                     items.push(QuotaItem {
                         label: label.into(),
                         display_value: None,
                         used,
                         total: t,
                         unit: unit_name.into(),
-                        detail: format!(
-                            "已用 {} / {} ({}%)",
-                            fmt_tokens(used),
-                            fmt_tokens(t),
-                            pct as i64
-                        ),
+                        // 数量条也要带重置倒计时（与百分比条 / MiMo 的
+                        // 「已用 … · N天后重置」一致），否则积分制实例
+                        // 只有用量、看不出窗口何时刷新。
+                        detail: amount_detail(used, t, pct, &reset),
                     });
                     continue;
                 }
@@ -280,6 +279,22 @@ fn now_ms() -> f64 {
         .unwrap_or(0.0)
 }
 
+/// 数量条详情：已用量 + 可选重置倒计时。reset 为空（无 nextResetTime /
+/// 已过期）时只显示用量，避免留下悬空的「后重置」。
+fn amount_detail(used: f64, total: f64, pct: f64, reset: &str) -> String {
+    let usage = format!(
+        "已用 {} / {} ({}%)",
+        fmt_tokens(used),
+        fmt_tokens(total),
+        pct as i64
+    );
+    if reset.is_empty() {
+        usage
+    } else {
+        format!("{usage} · {reset}后重置")
+    }
+}
+
 /// 格式化 token 数。
 fn fmt_tokens(val: f64) -> String {
     if val >= 100_000_000.0 {
@@ -307,5 +322,35 @@ fn fmt_duration(ms: f64) -> String {
         format!("{h}小时{m}分")
     } else {
         format!("{m}分")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn amount_detail_appends_reset_hint() {
+        // 积分制（CREDIT_LIMIT）数量条：用量 + 重置倒计时
+        assert_eq!(
+            amount_detail(2001.0, 2000.0, 100.0, "1小时11分"),
+            "已用 2001 / 2000 (100%) · 1小时11分后重置"
+        );
+        // 无 nextResetTime（fmt_duration 返回空）时只留用量，不留悬空「后重置」
+        assert_eq!(
+            amount_detail(6731.0, 10000.0, 67.0, ""),
+            "已用 6731 / 1.0万 (67%)"
+        );
+    }
+
+    #[test]
+    fn fmt_duration_picks_largest_units() {
+        assert_eq!(
+            fmt_duration(5.0 * 3600.0 * 1000.0 + 21.0 * 60.0 * 1000.0),
+            "5小时21分"
+        );
+        assert_eq!(fmt_duration(26.0 * 86400.0 * 1000.0), "26天0小时");
+        assert_eq!(fmt_duration(0.0), "");
+        assert_eq!(fmt_duration(-1000.0), "");
     }
 }
