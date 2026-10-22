@@ -14,8 +14,12 @@
   let barVars = $derived(
     `--pct:${pct}%; --gradient:${barGradient(pct, service, period)}; --size:${gradientSize(pct)};`
   );
+  // 百分比条（unit=="%"）右侧只显示「N%」——「0/100 %」的比值写法无信息量。
   let valueText = $derived(
-    item.displayValue ?? `${fmtNum(item.used)}/${fmtNum(item.total)} ${item.unit}`
+    item.displayValue ??
+      (item.unit === "%"
+        ? `${Math.round(pct)}%`
+        : `${fmtNum(item.used)}/${fmtNum(item.total)} ${item.unit}`)
   );
 
   // used/total 显示：整数不带小数，浮点保留一位。

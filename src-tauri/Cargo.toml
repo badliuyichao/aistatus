@@ -1,6 +1,6 @@
 [package]
 name = "aistatus"
-version = "0.4.1"
+version = "0.4.2"
 description = "AI API 余额监控悬浮框（Tauri 跨平台重写）"
 authors = ["you"]
 edition = "2021"

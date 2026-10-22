@@ -228,10 +228,9 @@ fn parse_quota_items(limits: Vec<GlmLimit>, now_ms: f64) -> Vec<QuotaItem> {
                         used,
                         total: t,
                         unit: unit_name.into(),
-                        // 数量条也要带重置倒计时（与百分比条 / MiMo 的
-                        // 「已用 … · N天后重置」一致），否则积分制实例
-                        // 只有用量、看不出窗口何时刷新。
-                        detail: amount_detail(used, t, pct, &reset),
+                        // detail 只放窗口信息（重置倒计时 / 未激活提示）：
+                        // 用量已由行右侧「X / Y 单位」展示，重复会显冗余。
+                        detail: window_detail(used == 0.0, &reset),
                     });
                     continue;
                 }
@@ -244,11 +243,7 @@ fn parse_quota_items(limits: Vec<GlmLimit>, now_ms: f64) -> Vec<QuotaItem> {
                 used: pct,
                 total: 100.0,
                 unit: "%".into(),
-                detail: if reset.is_empty() {
-                    String::new()
-                } else {
-                    format!("{reset}后重置")
-                },
+                detail: window_detail(pct == 0.0, &reset),
             });
         }
     }
@@ -291,31 +286,17 @@ fn now_ms() -> f64 {
         .unwrap_or(0.0)
 }
 
-/// 数量条详情：已用量 + 可选重置倒计时。reset 为空（无 nextResetTime /
-/// 已过期）时只显示用量，避免留下悬空的「后重置」。
-fn amount_detail(used: f64, total: f64, pct: f64, reset: &str) -> String {
-    let usage = format!(
-        "已用 {} / {} ({}%)",
-        fmt_tokens(used),
-        fmt_tokens(total),
-        pct as i64
-    );
-    if reset.is_empty() {
-        usage
-    } else {
-        format!("{usage} · {reset}后重置")
+/// 配额条 detail（数量条 / 百分比条统一）：有重置时间 → 「N后重置」；
+/// 无重置时间且用量为 0 → 窗口未激活提示（GLM 5 小时窗口在首次调用前
+/// 不下发 nextResetTime，此时没有可倒计时的重置点）；其余留空，不编造。
+fn window_detail(inactive: bool, reset: &str) -> String {
+    if !reset.is_empty() {
+        return format!("{reset}后重置");
     }
-}
-
-/// 格式化 token 数。
-fn fmt_tokens(val: f64) -> String {
-    if val >= 100_000_000.0 {
-        format!("{:.2}亿", val / 100_000_000.0)
-    } else if val >= 10_000.0 {
-        format!("{:.1}万", val / 10_000.0)
-    } else {
-        format!("{}", val as i64)
+    if inactive {
+        return "窗口未激活 · 首次调用后开始计时".into();
     }
+    String::new()
 }
 
 /// 格式化毫秒时长为「X天Y小时 / Y小时Z分 / Z分」。
@@ -342,17 +323,32 @@ mod tests {
     use super::*;
 
     #[test]
-    fn amount_detail_appends_reset_hint() {
-        // 积分制（CREDIT_LIMIT）数量条：用量 + 重置倒计时
-        assert_eq!(
-            amount_detail(2001.0, 2000.0, 100.0, "1小时11分"),
-            "已用 2001 / 2000 (100%) · 1小时11分后重置"
+    fn window_detail_prefers_reset_and_hints_inactive() {
+        // 有重置时间：只显示倒计时（用量在行右侧展示，不重复进 detail）
+        assert_eq!(window_detail(false, "1小时11分"), "1小时11分后重置");
+        assert_eq!(window_detail(true, "3分"), "3分后重置");
+        // 无 nextResetTime 且零用量：窗口未激活提示
+        // （实测：老套餐 5 小时窗口用量为 0 时接口不下发 nextResetTime）
+        assert_eq!(window_detail(true, ""), "窗口未激活 · 首次调用后开始计时");
+        // 有用量但拿不到重置时间：不编造，留空
+        assert_eq!(window_detail(false, ""), "");
+    }
+
+    #[test]
+    fn inactive_five_hour_window_gets_hint() {
+        // 老套餐 5 小时窗口用量为 0：接口只给 percentage=0，
+        // 无 usage / nextResetTime → detail 显示未激活提示而非空白
+        let items = parse_quota_items(
+            vec![
+                limit("TOKENS_LIMIT", None, None, 0.0, Some(3), Some(5)),
+                limit("TOKENS_LIMIT", None, None, 20.0, Some(6), Some(1)),
+            ],
+            0.0,
         );
-        // 无 nextResetTime（fmt_duration 返回空）时只留用量，不留悬空「后重置」
-        assert_eq!(
-            amount_detail(6731.0, 10000.0, 67.0, ""),
-            "已用 6731 / 1.0万 (67%)"
-        );
+        assert_eq!(items[0].unit, "%");
+        assert_eq!(items[0].detail, "窗口未激活 · 首次调用后开始计时");
+        // 有用量但无重置时间：留空
+        assert_eq!(items[1].detail, "");
     }
 
     #[test]
