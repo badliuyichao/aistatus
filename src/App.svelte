@@ -10,7 +10,6 @@
   import { theme } from "./stores/theme.svelte";
   import { openConfigFile, fitToContent } from "./api";
   import { listen } from "@tauri-apps/api/event";
-  import { formatTime } from "./types";
 
   const isMac =
     typeof navigator !== "undefined" &&
@@ -159,7 +158,7 @@
 
     <div class="footer">
       <div class="footer-status">
-        {#if services.refreshing}刷新中…{:else}⏱ 更新于 {formatTime(services.data.timestamp)}{/if}
+        {#if services.refreshing}刷新中…{:else}⏱ 更新于 {services.updatedAt}{/if}
       </div>
       <div class="footer-version">v{__APP_VERSION__} · {__BUILD_TIME__} · {__GIT_HASH__}</div>
     </div>

@@ -9,10 +9,18 @@ import {
   refreshNow,
 } from "../api";
 import type { BalanceData } from "../types";
+import { formatTime } from "../types";
 
 class ServicesStore {
   data = $state<BalanceData>({ title: "AI API 余额监控", services: [] });
   refreshing = $state(false);
+  /**
+   * 页脚「更新于」文本。与 data 在同一赋值处更新（不走模板内联派生）：
+   * 生产构建下模板里 `formatTime(services.data.timestamp)` 的派生在首次取数
+   * 时不会重新求值，页脚会一直空着，直到 refreshing 切换导致 {#if} 分支重建。
+   * 放在 store 里跟 data 同步赋值，与卡片更新走同一条可靠的响应式路径。
+   */
+  updatedAt = $state("");
 
   private unlisten?: () => void;
   private inited = false;
@@ -20,17 +28,23 @@ class ServicesStore {
   private refreshToken = 0;
   private refreshTimer: number | undefined;
 
+  /** 统一写入快照：data 与 updatedAt 必须一起更新。 */
+  private apply(d: BalanceData) {
+    this.data = d;
+    this.updatedAt = formatTime(d.timestamp);
+  }
+
   /** 启动时调一次：拉初始数据 + 订阅后端事件。重复调用会被忽略。 */
   async init() {
     if (this.inited) return;
     this.inited = true;
     try {
-      this.data = await getServices();
+      this.apply(await getServices());
     } catch (e) {
       console.error("get_services failed", e);
     }
     this.unlisten = await onServicesUpdated((d) => {
-      this.data = d;
+      this.apply(d);
       this.clearRefreshTimer();
       this.refreshing = false;
     });
