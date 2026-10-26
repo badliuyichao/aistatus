@@ -1,0 +1,37 @@
+﻿ts,pid,proc,ws,priv,handles,threads
+11:40:29,30480,aistatus.exe,71.6,9.3,396,16
+11:40:30,33388,webview/browser,436.8,41.1,1495,59
+11:40:30,3904,webview/crashpad-handler,28.1,2.9,185,8
+11:40:30,3672,webview/gpu-process,611.2,230.6,749,17
+11:40:30,30792,webview/utility,316.3,11,307,18
+11:40:30,22612,webview/utility,301.6,7.3,177,9
+11:40:30,17360,webview/renderer,342.7,39.4,285,18
+11:40:30,17344,webview/renderer,330.9,28.3,269,18
+--- sample 1/4
+11:42:01,30480,aistatus.exe,71.7,9.3,392,15
+11:42:01,33388,webview/browser,436.5,40.8,1483,57
+11:42:01,3904,webview/crashpad-handler,28.1,2.9,185,8
+11:42:01,3672,webview/gpu-process,600,219.7,750,17
+11:42:01,30792,webview/utility,316.2,10.8,301,15
+11:42:01,22612,webview/utility,301.6,7.2,177,8
+11:42:01,17360,webview/renderer,342.9,39.9,287,17
+11:42:01,17344,webview/renderer,331.4,28.8,269,18
+--- sample 2/4
+11:43:31,30480,aistatus.exe,71.7,9.4,392,17
+11:43:32,33388,webview/browser,436.7,41,1499,61
+11:43:32,3904,webview/crashpad-handler,28.2,3,185,10
+11:43:32,3672,webview/gpu-process,600,219.6,751,18
+11:43:32,30792,webview/utility,316.3,10.9,301,17
+11:43:32,22612,webview/utility,301.7,7.3,177,10
+11:43:32,17360,webview/renderer,343.1,39.9,286,20
+11:43:32,17344,webview/renderer,332.7,30.2,269,18
+--- sample 3/4
+11:45:02,30480,aistatus.exe,71.7,9.3,392,15
+11:45:03,33388,webview/browser,436.6,40.9,1487,58
+11:45:03,3904,webview/crashpad-handler,28.1,2.9,185,8
+11:45:03,3672,webview/gpu-process,611.2,230.5,750,17
+11:45:03,30792,webview/utility,316.2,10.8,301,15
+11:45:03,22612,webview/utility,301.6,7.3,177,9
+11:45:03,17360,webview/renderer,342.7,39.7,287,18
+11:45:03,17344,webview/renderer,333.6,31.4,269,18
+--- sample 4/4
