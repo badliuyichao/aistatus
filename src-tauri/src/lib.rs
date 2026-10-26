@@ -231,10 +231,16 @@ pub fn run() {
                         show_main_window(app);
                     }
                     "float" => {
-                        // 悬浮球开关：读当前选中态取反，切换窗口显隐并同步勾选。
-                        let now_visible = float_item_for_closure.is_checked().unwrap_or(true);
-                        let next = !now_visible;
-                        if let Some(window) = app.get_webview_window("float") {
+                        // 悬浮球开关：以窗口实际可见性取反。muda 在派发菜单事件前
+                        // 会自动翻转 CheckMenuItem 勾选态（Win/mac 同），再读
+                        // is_checked 就是双重翻转，next 恒为 true、永远只走显示分支。
+                        let window = app.get_webview_window("float");
+                        let next = window
+                            .as_ref()
+                            .and_then(|w| w.is_visible().ok())
+                            .map(|visible| !visible)
+                            .unwrap_or(true);
+                        if let Some(window) = window {
                             let _ = if next { window.show() } else { window.hide() };
                         }
                         let _ = float_item_for_closure.set_checked(next);

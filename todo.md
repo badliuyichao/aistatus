@@ -149,6 +149,12 @@ pnpm tauri dev
 **验证/操作方法**（在另一台 Windows 电脑上）：只拷新版 `src-tauri/target/release/aistatus.exe`（或重装 `bundle/nsis/AI余额监控_0.4.0_x64-setup.exe`）到不含任何 DLL 的目录直接启动；若目标机缺 WebView2 运行时（部分 Win10 精简版 / Server），用 NSIS 安装包会自动下载。
 **完成判据**：不伴随任何 DLL 直跑成功，托盘出现并能打开主界面。
 
+### [ ] 16. macOS：托盘「悬浮条」开关切换实测（2026-10-26）
+
+**背景**：修复「托盘菜单悬浮条开关失效、悬浮框无法隐藏」（v0.4.4）：muda 0.19 在派发菜单事件前会自动翻转 CheckMenuItem 勾选态（`platform_impl/windows/mod.rs` 与 `macos/mod.rs` 同款行为），处理器再读 `is_checked` 取反即双重翻转，`next` 恒为 true。已改为读 float 窗口 `is_visible()` 决定目标态、勾选态只写不读。Windows 已用真实托盘菜单点击实测（隐藏↔显示来回切换正常）；mac 端逻辑由 muda 源码确认一致，但未实测。
+**验证/操作方法**（在 mac 上）：`pnpm tauri dev` 启动 → 点菜单栏托盘图标 → 菜单点「悬浮条」→ 悬浮框应隐藏、菜单项勾选消失 → 再点应恢复显示并勾选；连续多次点击往返一致。
+**完成判据**：每次点击悬浮框显隐正确翻转，勾选态与窗口状态一致。
+
 ---
 
 ## 🧹 其他待办（非阻塞）
