@@ -37,8 +37,11 @@ for (const url of CDNS) {
       throw new Error("响应不是 PNG（slug 拼错了？到 lobehub.com/icons 核对）");
     }
     await writeFile(out, buf);
-    console.log(`已保存 ${out}（${buf.length} 字节）`);
-    console.log(`下一步: src/components/ServiceCard.svelte 的 logo() 加 n.startsWith("<前缀>") 分支`);
+    console.log(`已保存 ${out}（${buf.length} 字节，640×640 原图）`);
+    console.log(`下一步 1: 降采样到 128×128 再入库（显示尺寸仅 24px，640 原图解码占 ~1.6MB 内存/张）：`);
+    console.log(`  python -c "from PIL import Image; p='${out}'; im=Image.open(p).convert('RGBA'); im.resize((128,128), Image.LANCZOS).save(p, optimize=True)"`);
+    console.log(`  （macOS 可用: sips -z 128 128 ${out}）`);
+    console.log(`下一步 2: src/components/ServiceCard.svelte 的 logo() 加 n.startsWith("<前缀>") 分支`);
     process.exit(0);
   } catch (e) {
     lastErr = e;

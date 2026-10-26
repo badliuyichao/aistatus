@@ -50,10 +50,10 @@ Tauri 2 + Svelte 5 + TypeScript + Vite 跨平台桌面实现。
 服务商卡片图标来自 [Lobe Icons](https://github.com/lobehub/lobe-icons)（MIT，1600+ AI 品牌图标，覆盖智谱 / MiniMax / 小米 MiMo / DeepSeek / OpenAI / Claude / Qwen / Kimi 等）。**新增服务商时三步接入**：
 
 1. 到 <https://lobehub.com/icons> 搜品牌，记下 slug（如 `zhipu`、`minimax`、`xiaomimimo`、`deepseek`）
-2. `node scripts/fetch-icon.mjs <slug> [保存名]` —— 从 unpkg 下载 640×640 light PNG 到 `src/assets/`（自动校验 PNG 魔数，unpkg 失败换 npmmirror 国内源）
+2. `node scripts/fetch-icon.mjs <slug> [保存名]` —— 从 unpkg 下载 640×640 light PNG 到 `src/assets/`（自动校验 PNG 魔数，unpkg 失败换 npmmirror 国内源）。**下载后必须降采样到 128×128 再入库**：卡片显示尺寸仅 24px，128 已覆盖 4×+ DPI，640 原图每张解码后占 ~1.6MB 渲染器内存（脚本结尾会打印降采样命令，PIL / sips 均可）
 3. 前端按 `vendor` 稳定 ID 接入三处：`ServiceCard.svelte` 的 `logo()` switch 加分支、`barColors.ts` 的 `barAccent()` 加色相分支、`FloatWidget.svelte` 的 `brandShort()` 加短名；fetcher 产出的 `ServiceInfo.icon` emoji 作无图兜底
 
-约定统一用 **light 单图 640×640 PNG**（现有 `glm.png` / `minimax.png` / `mimo.png` / `deepseek.png` 同款，项目早期图标与该库同源）。手动下载直链：`https://unpkg.com/@lobehub/icons-static-png@latest/light/<slug>.png`（另有 `dark/`、`*-color.png`、`*-text.png` 变体；SVG 在 `@lobehub/icons-static-svg` 包的 `icons/<slug>.svg`）。图标版权归各品牌方，本工具内为指示性使用。
+约定统一用 **light 单图、入库尺寸 128×128 PNG**（源图取 Lobe Icons 的 640×640 light 变体，下载后降采样；现有 `glm.png` / `minimax.png` / `mimo.png` / `deepseek.png` 同款）。手动下载直链：`https://unpkg.com/@lobehub/icons-static-png@latest/light/<slug>.png`（另有 `dark/`、`*-color.png`、`*-text.png` 变体；SVG 在 `@lobehub/icons-static-svg` 包的 `icons/<slug>.svg`）。图标版权归各品牌方，本工具内为指示性使用。
 
 ## 目录结构
 
