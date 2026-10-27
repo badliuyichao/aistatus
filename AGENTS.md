@@ -191,6 +191,25 @@ config.json 里内置实例只存 `{builtin: 序号}` 引用 + 备注 / 显隐�
    - Vite 把 `__APP_VERSION__` / `__BUILD_TIME__` / `__GIT_HASH__` 注入前端（见 `vite.config.js` 的 `define`）
 3. 页脚显示 `v0.2.0 · 06-30 10:22 · fd420fc`，每次构建的「时间 + git hash」不同，可一眼区分新旧产物。
 
+### 发布流程（GitHub Release，自动化）
+
+`.github/workflows/release.yml` 在**推送 `v*` tag** 时自动构建双平台产物并发布 Release，无需本地打包上传：
+
+1. 按上面的规则改 `package.json` 的 `version`（如 `0.4.4` → `0.4.5`）并提交
+2. 打 tag 并推送：`git tag -a v0.4.5 -m "v0.4.5" && git push origin v0.4.5`
+3. CI 自动执行：
+   - **版本校验**：tag 去掉 `v` 后必须与 `package.json` 的 `version` 完全一致，否则失败（防止产物与标签不符）
+   - **macOS**（`macos-latest`）：`--target universal-apple-darwin` 构建，产出**单个通用 dmg**，同时支持 Apple Silicon 与 Intel
+   - **Windows**（`windows-latest`）：默认 msvc 工具链，产出 NSIS `*_x64-setup.exe` 与 `*_x64_zh-CN.msi`
+   - 自动创建 Release 并挂上各平台产物
+
+要点：
+
+- 云端构建不需要任何 key：`secrets.enc` 密文已提交 git，编译期内置实例照常工作。
+- 本机是 Intel（x64），本地 `pnpm build:tauri` 产物只适用 Intel Mac；对外分发请走 CI 的 universal 包。
+- 产物**未签名**：macOS 首次打开需右键「打开」（或 `xattr -cr`），Windows 会触发 SmartScreen 警告。根治见 `todo.md` 第 9 条。
+- 需要重发时：删除并重推同一 tag（`concurrency` 会取消旧运行），或在 Actions 页面对失败的 job 点「Re-run jobs」。
+
 ## 运行时行为
 
 - 窗口默认隐藏，托盘菜单「打开主界面」唤起；mac 关闭按钮=隐藏（常驻托盘），仅「退出」结束进程。
