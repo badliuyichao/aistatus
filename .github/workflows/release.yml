@@ -111,31 +111,39 @@ jobs:
           args: ${{ matrix.args }}
 
       # 把 Tauri 按 productName 命名的中文产物收集并改名为 ASCII。
-      # 各平台只会命中自己那几类文件（glob 无匹配时 nullglob 使其跳过）。
+      # 各平台只会命中自己那几类文件（find 无匹配时循环体不执行）。
+      # 用 find 而非 shopt globstar：macOS runner 的 /bin/bash 是 3.2，
+      # globstar 是 bash 4.0+ 特性，shopt 会报「invalid shell option」并在
+      # set -e 下直接失败（v0.4.5 首跑即因此失败）。
       - name: Collect bundles with ASCII names
         shell: bash
         run: |
           set -euo pipefail
           ver="$(node -p "require('./package.json').version")"
           mkdir -p dist-artifacts
-          shopt -s globstar nullglob
 
-          for f in src-tauri/target/**/release/bundle/dmg/*.dmg; do
+          while IFS= read -r f; do
             cp "$f" "dist-artifacts/aistatus_${ver}_macos_universal.dmg"
-          done
-          for f in src-tauri/target/**/release/bundle/macos/*.app.tar.gz; do
+          done < <(find src-tauri/target -type f -path '*/release/bundle/dmg/*.dmg')
+
+          while IFS= read -r f; do
             cp "$f" "dist-artifacts/aistatus_${ver}_macos_universal.app.tar.gz"
-          done
-          for f in src-tauri/target/**/release/bundle/nsis/*-setup.exe; do
+          done < <(find src-tauri/target -type f -path '*/release/bundle/macos/*.app.tar.gz')
+
+          while IFS= read -r f; do
             cp "$f" "dist-artifacts/aistatus_${ver}_windows_x64-setup.exe"
-          done
-          for f in src-tauri/target/**/release/bundle/msi/*.msi; do
+          done < <(find src-tauri/target -type f -path '*/release/bundle/nsis/*-setup.exe')
+
+          while IFS= read -r f; do
             cp "$f" "dist-artifacts/aistatus_${ver}_windows_x64.msi"
-          done
+          done < <(find src-tauri/target -type f -path '*/release/bundle/msi/*.msi')
 
           ls -l dist-artifacts
           # 防止命名规则与 Tauri 产物目录变化后静默上传空集合
-          test -n "$(ls -A dist-artifacts)"
+          if [ -z "$(ls -A dist-artifacts)" ]; then
+            echo "::error::没有收集到任何构建产物，请检查 Tauri 产物目录结构是否变化"
+            exit 1
+          fi
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
