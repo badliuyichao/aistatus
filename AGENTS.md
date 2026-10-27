@@ -201,7 +201,7 @@ config.json 里内置实例只存 `{builtin: 序号}` 引用 + 备注 / 显隐�
    - **版本校验**：tag 去掉 `v` 后必须与 `package.json` 的 `version` 完全一致，否则失败（防止产物与标签不符）
    - **macOS**（`macos-latest`）：`--target universal-apple-darwin` 构建，产出**单个通用 dmg**，同时支持 Apple Silicon 与 Intel
    - **Windows**（`windows-latest`）：默认 msvc 工具链，产出 NSIS `*_x64-setup.exe` 与 `*_x64_zh-CN.msi`
-   - 自动创建 Release 并挂上各平台产物
+   - 自动创建 Release 并挂上各平台产物，**产物统一改名为 ASCII**（`aistatus_<ver>_macos_universal.dmg` / `aistatus_<ver>_windows_x64-setup.exe` / `aistatus_<ver>_windows_x64.msi`）——Tauri 按 `productName`（中文）命名产物，而 GitHub Release 附件名不支持非 ASCII，会把中文替换成下划线
 
 要点：
 

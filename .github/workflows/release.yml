@@ -11,6 +11,13 @@
 #   - Windows runner 默认 msvc 工具链，满足项目强制 msvc 的要求。
 #   - 版本号单一真相源是 package.json；beforeBuildCommand 会自动跑
 #     sync-version 同步到 tauri.conf.json / Cargo.toml。
+#   - **产物统一重命名为 ASCII**（aistatus_<ver>_<平台>.<ext>）：Tauri 按
+#     productName（中文「AI余额监控」）命名产物，而 GitHub Release 附件名
+#     不支持非 ASCII 字符，会把中文替换成下划线（AI._0.4.4_universal.dmg）。
+#     故构建后先收集改名，再由独立的 publish job 统一上传（同时避免矩阵
+#     两个 job 并发创建 Release 的竞争）。
+#   - 发布拆成 build → publish 两段：publish 只有在两个平台都构建成功后才
+#     创建 Release，不会出现「一半产物」的半成品发布。
 
 name: release
 
@@ -19,7 +26,7 @@ on:
     tags:
       - "v*"
 
-# tauri-action 需要创建 Release 并上传附件
+# tauri-action 构建、softprops/action-gh-release 创建 Release 都需要写权限
 permissions:
   contents: write
 
@@ -54,14 +61,16 @@ jobs:
   build:
     needs: verify
     strategy:
-      fail-fast: false # 一个平台失败不影响另一个平台上传产物
+      fail-fast: false # 一个平台失败不影响另一个平台的构建结果
       matrix:
         include:
           - platform: macos-latest
             # universal：一个 dmg 覆盖 Apple Silicon (aarch64) 与 Intel (x86_64)
             args: --target universal-apple-darwin
+            artifact: macos
           - platform: windows-latest
             args: ""
+            artifact: windows
     runs-on: ${{ matrix.platform }}
 
     steps:
@@ -92,21 +101,81 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build and publish release
+      # 只构建不发布（不传 tagName/releaseName）：产物改名后交给 publish job
+      - name: Build app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tauriScript: pnpm tauri
           args: ${{ matrix.args }}
-          tagName: ${{ github.ref_name }}
-          releaseName: ${{ github.ref_name }}
-          releaseBody: |
+
+      # 把 Tauri 按 productName 命名的中文产物收集并改名为 ASCII。
+      # 各平台只会命中自己那几类文件（glob 无匹配时 nullglob 使其跳过）。
+      - name: Collect bundles with ASCII names
+        shell: bash
+        run: |
+          set -euo pipefail
+          ver="$(node -p "require('./package.json').version")"
+          mkdir -p dist-artifacts
+          shopt -s globstar nullglob
+
+          for f in src-tauri/target/**/release/bundle/dmg/*.dmg; do
+            cp "$f" "dist-artifacts/aistatus_${ver}_macos_universal.dmg"
+          done
+          for f in src-tauri/target/**/release/bundle/macos/*.app.tar.gz; do
+            cp "$f" "dist-artifacts/aistatus_${ver}_macos_universal.app.tar.gz"
+          done
+          for f in src-tauri/target/**/release/bundle/nsis/*-setup.exe; do
+            cp "$f" "dist-artifacts/aistatus_${ver}_windows_x64-setup.exe"
+          done
+          for f in src-tauri/target/**/release/bundle/msi/*.msi; do
+            cp "$f" "dist-artifacts/aistatus_${ver}_windows_x64.msi"
+          done
+
+          ls -l dist-artifacts
+          # 防止命名规则与 Tauri 产物目录变化后静默上传空集合
+          test -n "$(ls -A dist-artifacts)"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundles-${{ matrix.artifact }}
+          path: dist-artifacts/*
+          if-no-files-found: error
+
+  # 两个平台都构建成功后统一创建 Release 并上传，避免并发创建竞争
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-artifacts
+          merge-multiple: true
+
+      - name: List release files
+        run: ls -l dist-artifacts
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body: |
             由 tag `${{ github.ref_name }}` 自动构建发布。
 
-            - macOS：`*_universal.dmg`（Apple Silicon + Intel 通用，未签名，首次打开需右键「打开」）
-            - Windows：`*_x64-setup.exe`（NSIS 安装包）、`*_x64_zh-CN.msi`
+            **macOS**（universal，Apple Silicon + Intel 通用）
+            - `aistatus_*_macos_universal.dmg`
 
+            **Windows**
+            - `aistatus_*_windows_x64-setup.exe`（NSIS 安装包）
+            - `aistatus_*_windows_x64.msi`
+
+            产物未签名：macOS 首次打开需右键「打开」（或 `xattr -cr`），Windows 会触发 SmartScreen 警告。
             完整变更见本仓库提交历史。
-          releaseDraft: false
+          files: dist-artifacts/*
+          fail_on_unmatched_files: true
+          draft: false
           prerelease: false
