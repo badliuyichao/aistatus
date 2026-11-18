@@ -155,6 +155,14 @@ pnpm tauri dev
 **验证/操作方法**（在 mac 上）：`pnpm tauri dev` 启动 → 点菜单栏托盘图标 → 菜单点「悬浮条」→ 悬浮框应隐藏、菜单项勾选消失 → 再点应恢复显示并勾选；连续多次点击往返一致。
 **完成判据**：每次点击悬浮框显隐正确翻转，勾选态与窗口状态一致。
 
+### [x] 17. 发布 CI：新版 DMG 布局和 Windows 产物收集（2026-11-18 完成）
+
+**背景**：v1.0.0 的 macOS 发布任务改用无 GUI 依赖的 DMG 布局构建，Windows 发布任务继续使用 Tauri。需要在真实发布 runner 验证两个任务。
+**验证/操作方法**：下次发布后检查 macOS 任务产出的通用 DMG，在 Finder 打开检查背景和图标位置，并检查 Windows 任务的 NSIS 与 MSI 产物名称。
+**完成判据**：Release 包含通用 DMG、NSIS 和 MSI，DMG 安装窗口显示左侧应用、居中箭头与右侧 Applications。
+
+v1.0.0 的 macOS 与 Windows 构建均通过，三个安装包均已下载校验。通用 DMG 含两套架构，镜像完整性、应用签名和 Finder 背景与图标坐标校验通过。[构建记录](https://github.com/badliuyichao/aistatus/actions/runs/44280349946)
+
 ---
 
 ## 🧹 其他待办（非阻塞）

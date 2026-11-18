@@ -1,6 +1,6 @@
 {
   "name": "aistatus",
-  "version": "0.5.1",
+  "version": "1.0.1",
   "description": "AI API 余额监控悬浮框（Tauri + Svelte 跨平台重写）",
   "type": "module",
   "license": "MIT",
@@ -11,6 +11,7 @@
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "sync-version": "node scripts/sync-version.mjs",
     "build:tauri": "node scripts/build.mjs",
+    "build:dmg": "node scripts/build.mjs --installer-dmg",
     "tauri": "tauri"
   },
   "dependencies": {

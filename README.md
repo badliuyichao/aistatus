@@ -132,7 +132,7 @@ pnpm build:tauri
 ```
 
 - **Windows**：`src-tauri/target/release/aistatus.exe`（免安装直跑）+ `bundle/nsis/*.exe`（NSIS）+ `bundle/msi/*.msi`；构建脚本无条件强制 msvc，产物自包含、无需伴随 DLL
-- **macOS**：`.app` + `.dmg`（`src-tauri/target/release/bundle/`）
+- **macOS**：`.app` + 带拖拽安装提示的 `.dmg`（`src-tauri/target/release/bundle/`）。需要 `python3` 的 `venv` 和 `pip`，首次打包自动安装镜像构建依赖。通用包用 `pnpm build:dmg --target universal-apple-darwin`。
 
 > ⚠ 未签名的 macOS 应用首次打开需右键 → 打开；未签名的 Windows exe 可能被杀软误报。
 
