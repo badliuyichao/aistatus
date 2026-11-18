@@ -93,6 +93,7 @@ pnpm install          # 装依赖
 pnpm dev              # 前端 dev（仅 web，端口 1420）
 pnpm tauri dev        # 桌面 dev（热重载）
 pnpm build:tauri      # ★ 打包发布（自动处理 cargo PATH，见下）
+pnpm build:dmg        # macOS 安装包，可用 --target universal-apple-darwin 构建通用版
 pnpm sync-version     # 手动同步版本号（build 前会自动跑）
 pnpm check            # svelte-check 类型检查
 node scripts/encrypt-keys.mjs  # 可选：生成播种源密文（见下「API Key 与播种」）
@@ -173,6 +174,7 @@ config.json 里内置实例只存 `{builtin: 序号}` 引用 + 备注 / 显隐�
 
 ### 打包注意
 
+- **macOS DMG**：`pnpm build:tauri` 默认先打 `.app`，再由 `scripts/package-dmg.py` 写入 Finder 图标布局与 1×/2× 背景（`src-tauri/dmg/background.tiff`）。布局尺寸用逻辑点，调整背景时同步图标坐标与窗口尺寸。依赖通过 `python3 -m venv` 安装到 `src-tauri/target/dmg-tools`。本地与 CI 共用布局，Windows 仍由 Tauri 打包。
 - **WiX 语系必须是 `zh-CN`**（`tauri.conf.json` → `bundle.windows.wix.language`）。中文 `productName`（AI余额监控）在默认 en-US / 代码页 1252 下会触发 `LGHT0311`。
 - **bundle identifier 不要以 `.app` 结尾**（与 macOS 应用包扩展名冲突）。当前：`com.aistatus.desktop`。
 - **pnpm 11 需在 `pnpm-workspace.yaml` 授权 esbuild**（`onlyBuiltDependencies`），否则 `pnpm install` 退出码 1。`package.json` 不再放 `pnpm` 字段（pnpm 11 已不读取，会打 WARN）。
@@ -199,15 +201,15 @@ config.json 里内置实例只存 `{builtin: 序号}` 引用 + 备注 / 显隐�
 2. 打 tag 并推送：`git tag -a v0.4.5 -m "v0.4.5" && git push origin v0.4.5`
 3. CI 自动执行：
    - **版本校验**：tag 去掉 `v` 后必须与 `package.json` 的 `version` 完全一致，否则失败（防止产物与标签不符）
-   - **macOS**（`macos-latest`）：`--target universal-apple-darwin` 构建，产出**单个通用 dmg**，同时支持 Apple Silicon 与 Intel
+   - **macOS**（`macos-latest`）：`pnpm build:dmg --target universal-apple-darwin` 产出**单个通用 dmg**，同时支持 Apple Silicon 与 Intel
    - **Windows**（`windows-latest`）：默认 msvc 工具链，产出 NSIS `*_x64-setup.exe` 与 `*_x64_zh-CN.msi`
    - 自动创建 Release 并挂上各平台产物，**产物统一改名为 ASCII**（`aistatus_<ver>_macos_universal.dmg` / `aistatus_<ver>_windows_x64-setup.exe` / `aistatus_<ver>_windows_x64.msi`）——Tauri 按 `productName`（中文）命名产物，而 GitHub Release 附件名不支持非 ASCII，会把中文替换成下划线
 
 要点：
 
 - 云端构建不需要任何 key：`secrets.enc` 密文已提交 git，编译期内置实例照常工作。
-- 本机是 Intel（x64），本地 `pnpm build:tauri` 产物只适用 Intel Mac；对外分发请走 CI 的 universal 包。
-- 产物**未签名**：macOS 首次打开需右键「打开」（或 `xattr -cr`），Windows 会触发 SmartScreen 警告。根治见 `todo.md` 第 9 条。
+- 本地 `pnpm build:tauri` 的 macOS 产物对应当前构建架构，CI 发布 universal 包。
+- CI 的 macOS 应用使用 ad-hoc 签名，未做 Apple 公证。Windows 安装包未签名，首次运行可能触发 SmartScreen 提示。签名与公证待办见 `todo.md` 第 9 条。
 - 需要重发时：删除并重推同一 tag（`concurrency` 会取消旧运行），或在 Actions 页面对失败的 job 点「Re-run jobs」。
 
 ## 运行时行为

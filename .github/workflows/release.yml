@@ -66,10 +66,8 @@ jobs:
         include:
           - platform: macos-latest
             # universal：一个 dmg 覆盖 Apple Silicon (aarch64) 与 Intel (x86_64)
-            args: --target universal-apple-darwin
             artifact: macos
           - platform: windows-latest
-            args: ""
             artifact: windows
     runs-on: ${{ matrix.platform }}
 
@@ -101,14 +99,20 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build macOS installer
+        if: matrix.artifact == 'macos'
+        env:
+          APPLE_SIGNING_IDENTITY: '-'
+        run: pnpm build:dmg --target universal-apple-darwin
+
       # 只构建不发布（不传 tagName/releaseName）：产物改名后交给 publish job
-      - name: Build app
+      - name: Build Windows installers
+        if: matrix.artifact == 'windows'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tauriScript: pnpm tauri
-          args: ${{ matrix.args }}
 
       # 把 Tauri 按 productName 命名的中文产物收集并改名为 ASCII。
       # 各平台只会命中自己那几类文件（find 无匹配时循环体不执行）。
@@ -124,7 +128,7 @@ jobs:
 
           while IFS= read -r f; do
             cp "$f" "dist-artifacts/aistatus_${ver}_macos_universal.dmg"
-          done < <(find src-tauri/target -type f -path '*/release/bundle/dmg/*.dmg')
+          done < <(find src-tauri/target -type f -path "*/release/bundle/dmg/*_${ver}_universal.dmg")
 
           while IFS= read -r f; do
             cp "$f" "dist-artifacts/aistatus_${ver}_macos_universal.app.tar.gz"
@@ -181,7 +185,7 @@ jobs:
             - `aistatus_*_windows_x64-setup.exe`（NSIS 安装包）
             - `aistatus_*_windows_x64.msi`
 
-            产物未签名：macOS 首次打开需右键「打开」（或 `xattr -cr`），Windows 会触发 SmartScreen 警告。
+            macOS 应用使用 ad-hoc 签名，未做 Apple 公证。Windows 安装包未签名，首次运行可能触发 SmartScreen 提示。
             完整变更见本仓库提交历史。
           files: dist-artifacts/*
           fail_on_unmatched_files: true

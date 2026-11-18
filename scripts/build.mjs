@@ -7,9 +7,11 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { parseArgs } from "node:util";
 
 const home = os.homedir();
 const isWin = process.platform === "win32";
+const isMac = process.platform === "darwin";
 const sep = isWin ? ";" : ":";
 const exe = isWin ? ".exe" : "";
 
@@ -66,6 +68,26 @@ if (msvcBin) {
 }
 if (extra.length) env.PATH = extra.join(sep) + sep + (env.PATH ?? "");
 
+const args = process.argv.slice(2);
+const installerDmg = args[0] === "--installer-dmg";
+if (installerDmg && !isMac) {
+  console.error("[build] DMG 安装包需要在 macOS 上构建");
+  process.exit(1);
+}
+
+// macOS 的默认构建与 build:dmg 使用同一套安装窗口布局。
+const buildDmg = isMac && (installerDmg || args.length === 0);
+let tauriArgs = args;
+let target;
+if (buildDmg) {
+  const { values } = parseArgs({
+    args: args.slice(1),
+    options: { target: { type: "string", short: "t" } },
+  });
+  target = values.target;
+  tauriArgs = ["--bundles", "app", ...(target ? ["--target", target] : [])];
+}
+
 // 直接运行项目已安装的 Tauri CLI，避免 Windows 上只有 pnpm.ps1 时，
 // `shell: true` 的 cmd.exe 找不到 pnpm 的问题；Node 路径在三平台一致可用。
 const tauriCli = path.join(process.cwd(), "node_modules", "@tauri-apps", "cli", "tauri.js");
@@ -74,8 +96,26 @@ if (!fs.existsSync(tauriCli)) {
   process.exit(1);
 }
 
-const r = spawnSync(process.execPath, [tauriCli, "build", ...process.argv.slice(2)], {
+const r = spawnSync(process.execPath, [tauriCli, "build", ...tauriArgs], {
   stdio: "inherit",
   env,
 });
-process.exit(r.status ?? 1);
+if (r.status !== 0 || !buildDmg) process.exit(r.status ?? 1);
+
+// 安装到构建目录里的独立环境，兼容 Xcode 自带的 Python 3.9。
+const venv = path.join(process.cwd(), "src-tauri", "target", "dmg-tools");
+const python = path.join(venv, "bin", "python3");
+if (!fs.existsSync(python)) {
+  run("python3", ["-m", "venv", venv]);
+}
+run(python, [
+  "-m", "pip", "--disable-pip-version-check", "install", "--no-input", "--quiet",
+  "dmgbuild==1.6.5", "ds-store==1.3.1", "mac-alias==2.2.2",
+]);
+run(python, [path.join("scripts", "package-dmg.py"), ...(target ? [target] : [])]);
+
+function run(command, args) {
+  const result = spawnSync(command, args, { stdio: "inherit", env });
+  if (result.error) console.error(result.error.message);
+  if (result.status !== 0) process.exit(result.status ?? 1);
+}
