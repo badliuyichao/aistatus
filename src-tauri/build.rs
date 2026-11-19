@@ -12,6 +12,10 @@ use std::path::Path;
 
 fn main() {
     tauri_build::build();
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+        let tray_icon = Path::new("icons").join("tray-template.png");
+        println!("cargo:rerun-if-changed={}", tray_icon.display());
+    }
 
     // 读密文。secrets.enc 缺失 / 字段不全时按空处理（警告不 panic）：
     // API Key 已改为运行期配置（设置对话框），内置 key 仅作为升级迁移的

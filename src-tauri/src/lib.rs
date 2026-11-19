@@ -254,7 +254,14 @@ pub fn run() {
                     _ => {}
                 });
 
-            // 托盘图标：优先用打包的图标文件
+            // macOS 由系统为透明模板着色，与菜单栏的明暗保持一致。
+            #[cfg(target_os = "macos")]
+            {
+                tray = tray
+                    .icon(tauri::include_image!("icons/tray-template.png"))
+                    .icon_as_template(true);
+            }
+            #[cfg(not(target_os = "macos"))]
             if let Some(icon) = app.default_window_icon().cloned() {
                 tray = tray.icon(icon);
             }
