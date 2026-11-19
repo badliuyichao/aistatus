@@ -195,15 +195,16 @@ config.json 里内置实例只存 `{builtin: 序号}` 引用 + 备注 / 显隐�
 
 ### 发布流程（GitHub Release，自动化）
 
-`.github/workflows/release.yml` 在**推送 `v*` tag** 时自动构建双平台产物并发布 Release，无需本地打包上传：
+**本项目的正式发版统一从 `main` 进行。** 收到「发版」请求时，先把 `V2` 或其他开发分支中准备发布的改动合入 `main`，再以合并后的 `main` 提交为基准打 tag、构建安装包和发布 GitHub Release。
 
-1. 按上面的规则改 `package.json` 的 `version`（如 `0.4.4` → `0.4.5`）并提交
-2. 打 tag 并推送：`git tag -a v0.4.5 -m "v0.4.5" && git push origin v0.4.5`
-3. CI 自动执行：
+1. 在开发分支上完成验证，按版本管理规则同步版本号，把准备发布的提交合入 `main`。
+2. 核对 `main` 的待发布提交已包含所需改动、版本号已同步，将 `main` 推送到 `origin`。在该 `main` 提交上创建与 `package.json` 版本匹配的 `v*` tag，例如 `git tag -a v1.2.3 -m "v1.2.3" main`，再推送该 tag。
+3. `.github/workflows/release.yml` 在收到 `v*` tag 后自动构建双平台产物并发布 Release。
    - **版本校验**：tag 去掉 `v` 后必须与 `package.json` 的 `version` 完全一致，否则失败（防止产物与标签不符）
    - **macOS**（`macos-latest`）：`pnpm build:dmg --target universal-apple-darwin` 产出**单个通用 dmg**，同时支持 Apple Silicon 与 Intel
    - **Windows**（`windows-latest`）：默认 msvc 工具链，产出 NSIS `*_x64-setup.exe` 与 `*_x64_zh-CN.msi`
    - 自动创建 Release 并挂上各平台产物，**产物统一改名为 ASCII**（`aistatus_<ver>_macos_universal.dmg` / `aistatus_<ver>_windows_x64-setup.exe` / `aistatus_<ver>_windows_x64.msi`）——Tauri 按 `productName`（中文）命名产物，而 GitHub Release 附件名不支持非 ASCII，会把中文替换成下划线
+4. 等待发布任务成功，核对 Release 的 tag 和安装包附件，再确认发版完成。
 
 要点：
 
